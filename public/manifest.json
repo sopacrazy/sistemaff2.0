@@ -1,0 +1,20 @@
+{
+  "short_name": "SistemaFF",
+  "name": "Sistema Fort Fruit",
+  "icons": [
+    {
+      "src": "icons/desktop.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "icons/desktop.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#4CAF50",
+  "background_color": "#ffffff"
+}

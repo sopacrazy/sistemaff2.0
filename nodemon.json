@@ -1,0 +1,17 @@
+{
+  "ignore": [
+    "data/**/*",
+    "*.json",
+    "node_modules/**/*",
+    "uploads/**/*",
+    "logs/**/*"
+  ],
+  "watch": [
+    "server.js",
+    "routes/**/*.js",
+    "middleware/**/*.js",
+    "config/**/*.js",
+    ".env"
+  ],
+  "ext": "js,json"
+}

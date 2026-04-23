@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* Ensure driver.js elements are above everything */
+div#driver-popover-item,
+.driver-popover-item {
+  z-index: 999999 !important;
+}
+
+.driver-popover {
+  z-index: 999999 !important;
+}
+
+.driver-overlay {
+  z-index: 999998 !important;
+}
+
+.driver-active-element {
+  z-index: 999997 !important;
+}

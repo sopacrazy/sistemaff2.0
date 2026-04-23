@@ -1,0 +1,5200 @@
+#Include "PROTHEUS.Ch"
+#include "rwmake.ch"
+#include "COLORS.ch"
+#include "topconn.ch"
+#INCLUDE "ParmType.ch" 
+#INCLUDE "Font.ch"
+#Include "RPTDef.ch"
+#Include "FWPrintSetup.ch"
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao	 ³ RFINB01	³ Autor ³                       ³ Data ³ 28/04/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descricao ³ Impressao do Boleto                                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ CIS Eletronica                                             ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+User Function RFINB01(_cAuto)
+
+	Local _l2UMFat := GetNewPar("FF_2UMFAT", .T.) // RAFAEL CRUZ - INOVATIVA (04/06/2020) - PROJETO FATURAR NA 2UM PRJ2M
+
+	SetPrvt("NDIGBOL,NDIGBAR,CALIAS")
+	SetPrvt("NFI,NFF,SERIE,_CLINHA,FATOR,ARQ,CGRUPO,PERG")
+	SetPrvt("I,NVAL,FILTIMP,ARETURN,AINFO,NLASTKEY,CSTRING")
+	SetPrvt("WNREL,NCONT,XI,_cCampo,NDIGITO,Nnumero")
+	
+	Private _cFileAttach := ""
+	Private _aFileAttach := {}
+	Private _nCont    := 1
+	Private cPerg
+	Private _aTitulos := {}
+	Private _aTitSant := {}
+	Private _aTitSafra := {}
+	Private _nDigbar  := "1"
+	Private _cNum     := ""
+	Private _cFiltro  := ""
+
+	// variaveis de emissao de email de desconto fora do dia aplicado 
+	Private _nDescAtua := 0
+	Private _nDescNovo := 0
+	Private _cDescDife := ""
+
+	Private cAdRot := "BOLETO"
+	
+	Private _cB_DVCam   := ""
+	Private _cCodBarras := ""
+	Private _cLineDig   := ""
+	Private _CFATORVCTO := ""
+
+	Private cMV01 := PadR("",TamSX3("Z4_BILHETE")[1])
+	Private cMV02 := PadR("",TamSX3("Z4_BILHETE")[1])
+	Private lWhen := .t.
+
+	/*
+	If !LockByName(cAdRot, .T., .F.)
+	    Aviso(cAdRot, "Atenção! Existe outro processamento sendo executado! Aguarde e tente novamente + tarde...", {"OK"}, 3)
+    	Return
+	EndIf
+	*/
+
+	// _aTitulos => array que contem as informacoes
+	// que serao impressas no boleto
+	// [n,01] = Prefixo+Numero+Parcela do Titulo
+	// [n,02] = Vencimento
+	// [n,03] = Valor do Titulo
+	// [n,04] = Nosso Numero
+	// [n,05] = Agencia
+	// [n,06] = Codigo do Cedente
+	// [n,07] = Carteira
+	// [n,08] = Nome do CLiente
+	// [n,09] = Emissao do titulo
+	// [n,10] = Endereco do Cliente
+	// [n,11] = Cidade do Cliente
+	// [n,12] = Estado do Cliente
+	// [n,13] = CEP do Cliente
+	// [n,14] = CNPJ do Cliente
+	// [n,15] = Data do Processamento
+	// [n,16] = Conta do Cedente
+
+	cPerg := "CSFT07"
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Variaveis utilizadas para parametros                         ³
+	//³ mv_par01             // Da Nota                              ³
+	//³ mv_par02             // Ate a Nota                           ³
+	//³ mv_par03             // Serie                                ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+	//ValidPerg()
+
+	// Retira filtro
+	dbSelectArea("SE1")
+	_cFiltro := DbFilter()
+	Set Filter to
+
+	// Inicializa array de titulos
+
+	_nCont    := 1   
+	_LiMP := .T.
+
+	iF ValType(_cAuto) != "U" .And. SM0->M0_CODIGO == "17"
+
+		_lAuto := .T.
+		cPerg := ""
+
+		MV_PAR01 := _cAuto
+		MV_PAR02 := _cAuto
+		MV_PAR03 := "BIL"
+		MV_PAR04 := "237"
+		MV_PAR05 := "00523"
+		MV_PAR06 := "060694    "
+		MV_PAR07 := ""
+		MV_PAR08 := 0
+		MV_PAR09 := "06"    
+	
+		_lImp := .T.
+
+	ElseIf _l2UMFat .And. ( FWCodEmp() == "14" .AND. FWCodFil() == "01"  ) .And. AllTrim(Upper(GetEnvServer()))=="VALIDACAO" 
+	
+		_cNFSZ4  := GetAdvFVal("SZ4","Z4_NOTA",xFilial("SZ4") + _cAuto ,1)
+	
+		MV_PAR01 := _cAuto 
+		MV_PAR02 := _cAuto 
+		MV_PAR03 := "BIL"
+		MV_PAR04 := "237"    //GetMv(FF_BCOBOL)
+		MV_PAR05 := "0502"   //GetMV(FF_AGEBOL)
+		MV_PAR06 := "729108" //GetMV(FF_CTCBOL)
+		MV_PAR07 := "NF " + _cNFSZ4
+		MV_PAR08 := 0
+		MV_PAR09 := "09"
+	
+		_lImp    := .T.
+		_lAuto   := .F. 
+	
+	Else
+	
+		_lAuto := .F.               
+		Pergunte(cPerg,.F.)
+		MV_PAR08 := 0
+		_lImp := PergFB01(cPerg,.T.)
+	
+	Endif
+
+
+	If _lImp   // mpPergunte(cPerg,.T.)
+
+		DbSelectArea("SE1")
+		DbSetOrder(1)
+		DbSeek(xFilial("SE1")+mv_par03+PadR(AllTrim(MV_PAR01),TamSX3("E1_NUM")[1]))
+
+		//Do While SE1->( !EOF() ) .and. SE1->E1_FILIAL==FWxFilial("SE1") .and. SE1->E1_NUM >= mv_par01 .and. SE1->E1_NUM <= mv_par02 .and. ;
+		Do While SE1->( !EOF() ) .and. SE1->E1_FILIAL==FWxFilial("SE1") .and. AllTrim(SE1->E1_NUM) == AllTrim(mv_par01) .and. AllTrim(SE1->E1_PREFIXO) == AllTrim(mv_par03)
+
+			_nDescAtua := 0
+			_nDescNovo := 0
+			_cDescDife := ""
+
+			If SE1->E1_VALOR <= 0
+				//			Aviso(" Emissao Boletos ","Titulo ja Baixado. Nao Permitida Emissao de Boleto. ",{"OK"})
+				SE1->(dbSkip())
+				Loop
+				//Return(Nil)
+			Endif
+
+			If !Empty(SE1->E1_NUMBCO)
+
+				_cAviso :=  ""
+
+				//If MV_PAR08  <> SE1->E1_DECRESC
+				If MV_PAR08  <> SE1->E1_SDDECRE
+
+					_cAviso :=  "Boleto ja Impresso com DESCONTO ("+Transform(MV_PAR08,'@RE 999,999.99')+") DIFERENTE DO DESCONTO DADO PELA PRIMEIRA VEZ ("+Transform(SE1->E1_DECRESC,'@RE 999,999.99')+") !!!"
+
+					If SE1->E1_EMISSAO <> Date()
+
+						_nDescAtua := SE1->E1_SDDECRE // SE1->E1_DECRESC
+						_nDescNovo := MV_PAR08
+
+						_cDescDife := '  <tr>'+CRLF
+						_cDescDife +=  "    <td> Controle de Alteracao de descontos. Bilhete : "+ SE1->E1_NUM+" De "+DTOC(SE1->E1_EMISSAO)+" . </td> " +CHR(13)+CHR(10)
+						_cDescDife +=  "    <td>   </td>"+CHR(13)+CHR(10)
+						_cDescDife +=  "    <td> Alteracao de Desconto. Desconto Antigo : "+Transform(SE1->E1_DECRESC,'@RE 999,999.99')+". Novo Desconto : "+Transform(MV_PAR08,'@RE 999,999.99')+". </td> " +CHR(13)+CHR(10)
+						_cDescDife +=  "    <td>   </td>"+CHR(13)+CHR(10)
+						_cDescDife += '</div>'+CRLF
+						_cDescDife += '</table>'+CRLF
+						_cDescDife += '</body>'+CRLF
+						_cDescDife += '</html>'+CRLF
+
+					Endif 
+				Else
+					_cAviso :=  "Boleto n. " + AllTrim(SE1->E1_NUM) + ", parcela " + AllTrim(SE1->E1_PARCELA) + " , do cliente " + AllTrim(SE1->E1_NOMCLI) + " já impresso!!!"
+				Endif
+
+				_nAviso := Aviso(" Emissao Boletos ",_cAviso,{"Re-Imprimir","Cancela"})
+				If _nAviso <> 1
+					_nDescAtua := 0
+					_nDescNovo := 0
+					_cDescDife := ""
+					SE1->(dbSkip())
+					Loop
+				Endif
+
+			Else
+
+				If MV_PAR08  <> 0
+
+					If _nCont < 2
+
+						_nAviso := Aviso("Emissao Boletos"," Confirma DESCONTO APLICADO DE "+Transform(MV_PAR08,"@RE 999,999.99")+" ? ",{"Sim","Nao"})
+
+						If SE1->E1_EMISSAO <> Date()
+							_nDescAtua := 0
+							_nDescNovo := MV_PAR08
+							_cDescDife := '  <tr>'+CRLF
+							_cDescDife :=  "    <td> Controle de INCLUSAO DE descontos. Bilhete : "+ SE1->E1_NUM+" De "+DTOC(SE1->E1_EMISSAO)+" . </td> " +CHR(13)+CHR(10)
+							_cDescDife +=  "    <td>   </td>"+CHR(13)+CHR(10)
+							_cDescDife +=  "    <td> Desconto Aplicado em Dia Anterior. Desconto : "+Transform(MV_PAR08,'@RE 999,999.99')+". </td> " +CHR(13)+CHR(10)
+							_cDescDife +=  "    <td>   </td>"+CHR(13)+CHR(10)
+							_cDescDife += '</div>'+CRLF
+							_cDescDife += '</table>'+CRLF
+							_cDescDife += '</body>'+CRLF
+							_cDescDife += '</html>'+CRLF
+						Endif 
+
+						If _nAviso <> 1
+							_nDescAtua := 0
+							_nDescNovo := 0
+							_cDescDife := ""
+							SE1->(dbSkip())
+							Loop
+						Endif
+					
+					EndIf
+				
+				Endif
+
+			Endif
+
+			// Posicono cliente para buscar A1_BCO1
+			SA1->(dbsetOrder(1))
+			SA1->(dbGotop())
+			SA1->(dbSeek( xFilial("SA1") + SE1->E1_CLIENTE + SE1->E1_LOJA ))
+
+			//////////////////////////////////////////////////////////////////
+			// Bradesco
+			//////////////////////////////////////////////////////////////////
+
+			//If AllTrim(SA1->A1_BCO1) <> "033"
+			If AllTrim(SA1->A1_BCO1) == "237" // Implantação cobrança Safra - FWNM - 20/07/2023
+
+				//Aadd(_aTitulos,{"","",0,"","","","","","","","","","","","","",0,_nDescAtua,_nDescNovo,_cDescDife})
+				Aadd(_aTitulos,{"","",0,"","","","","","","","","","","","","",0,_nDescAtua,_nDescNovo,_cDescDife,SZ4->Z4_NOTA,SE1->E1_VALOR,SE1->E1_DECRESC})
+				
+				_cNum := SE1->E1_PREFIXO+" "+SE1->E1_NUM+" "+SE1->E1_PARCELA
+				_aTitulos[_nCont][01] := _cNum            // Prexifo+Numero+Parcela do Titulo
+				_aTitulos[_nCont][02] := SE1->E1_VENCTO   // Vencimento
+
+				If MV_PAR08 == 0// SE1->E1_DESCFIN > 0
+					MV_PAR08 := SE1->E1_DECRESC
+				Endif
+
+				If MV_PAR08 > 0// SE1->E1_DESCFIN > 0
+
+					_aTitulos[_nCont][17] := MV_PAR08
+
+					dbSelectArea("SZP")
+					_cNumSzp := GETSXENUM('SZP','ZP_CODIGO')
+					ConfirmSX8()
+
+					Reclock("SZP",.T.)
+						SZP->ZP_FILIAL  := xFilial("SZP") 
+						SZP->ZP_CODIGO  := _cNumSzp 
+						SZP->ZP_ITEM    := "01" 
+						SZP->ZP_ASSUNTO := "000005"
+						SZP->ZP_DESCASS := "EVENTO"
+						SZP->ZP_OCORREN := "000006" 
+						SZP->ZP_DESCOCO := "DECRESCIMO BOLETO"
+						SZP->ZP_SOLUCAO := "000001"
+						SZP->ZP_DESCSOL := "DESCONCO CONCEDIDO"
+						SZP->ZP_OPERADO := RetCodUsr()
+						SZP->ZP_DESCOPE := UsrFullName(SZP->ZP_OPERADO)                                                                          
+						SZP->ZP_DATA    := dDataBase
+						SZP->ZP_STATUS  := "2"
+						SZP->ZP_OBS     := "DECRES ORIG = R$ "+Transform( SE1->E1_DECRESC,"@re 999,999.99" ) + ". DECRES NOVO = R$ "+Transform( MV_PAR08,"@re 999,999.99" )+ ". Cliente : " +SE1->E1_NOMCLI
+						SZP->ZP_DTEXEC  := dDataBase
+						SZP->ZP_VENDA   := SE1->E1_NUM //SZH->ZH_CODIGO
+					SZP->( msUnlock() )
+//					Endif
+
+					DbSelectArea("SE1")
+					RecLock("SE1",.F.)
+						SE1->E1_DECRESC := MV_PAR08
+						SE1->E1_SDDECRE := MV_PAR08
+					SE1->( msUnLock() )
+					//Endif
+
+				Endif
+
+				// ALTERACAO PARA CONTEMPLAR TODAS ALTERACOES DE DESCONTO/ABAT/ACRESIMO NO S TITULOS...USANDO FUNCAO SALDOTIT - CONSIGO REIMPRIMIR NA DATA
+				_aTitulos[_nCont][17] := 0 // MV_PAR08
+				_aTitulos[_nCont][03] := Round(SaldoTit(SE1->E1_PREFIXO,SE1->E1_NUM,SE1->E1_PARCELA,SE1->E1_TIPO,SE1->E1_NATUREZ,"R",SE1->E1_CLIENTE,1,dDataBase,,SE1->E1_LOJA,,SE1->E1_TXMOEDA,1),2)
+				
+				_aTitulos[_nCont][22] := SE1->E1_VALOR
+				_aTitulos[_nCont][23] := SE1->E1_DECRESC
+
+				DbSelectArea("SEE")
+				DbSetOrder(1)
+				If DbSeek(xFilial("SEE")+"237") // MV_PAR04+MV_PAR05+MV_PAR06+MV_PAR09 )   
+					If SM0->M0_CODIGO == "17"
+						MV_PAR05O := MV_PAR05
+						MV_PAR06O := MV_PAR06
+
+						MV_PAR05 := "0523"
+						MV_PAR06 := "606944"
+					Endif
+					FNOSSONUM()
+				Else
+					MsgAlert("Nao encontrou Parametros Banco !")
+					Return(Nil)
+				Endif
+
+				_aTitulos[_nCont][04] := SE1->E1_NUMBCO
+
+				cDigAgen := ""
+				_aTitulos[_nCont][05] := MV_PAR05
+				_aTitulos[_nCont][08] := StrZero(Day(SE1->E1_EMISSAO),2)+"/"+StrZero(Month(SE1->E1_EMISSAO),2)+"/"+StrZero(Year(SE1->E1_EMISSAO),4)
+				_aTitulos[_nCont][16] := MV_PAR06 	  // Numero da Conta Corrente
+
+				_aTitulos[_nCont][06] := Right(Alltrim(SEE->EE_CODEMP),9)   // Codigo do Cedente
+				_aTitulos[_nCont][07] := SubStr(Alltrim(SEE->EE_SUBCTA),1,2)  // "06"  //SEE->EE_CART      // Carteira
+
+				DbSelectArea("SA1")
+				DbSetOrder(1)
+				If DbSeek(xFilial("SA1")+SE1->E1_CLIENTE+SE1->E1_LOJA)
+					_aTitulos[_nCont][09] := SA1->A1_NOME
+					If !Empty(SA1->A1_ENDCOB)
+						_aTitulos[_nCont][10] := SA1->A1_ENDCOB
+						_aTitulos[_nCont][11] := SA1->A1_MUNC
+						_aTitulos[_nCont][12] := SA1->A1_ESTC
+						_aTitulos[_nCont][13] := SA1->A1_CEPC
+					Else
+						_aTitulos[_nCont][10] := SA1->A1_END
+						_aTitulos[_nCont][11] := SA1->A1_MUN
+						_aTitulos[_nCont][12] := SA1->A1_EST
+						_aTitulos[_nCont][13] := SA1->A1_CEP
+					Endif
+					_aTitulos[_nCont][14] := SA1->A1_CGC
+					_aTitulos[_nCont][15] := StrZero(Day(dDatabase),2)+"/"+StrZero(Month(dDatabase),2)+"/"+StrZero(Year(dDatabase),4)
+				Endif
+
+				// GRAVA SZA PARA AJUSTAR NA ALTERACAO
+				dbSelectArea("SZA")
+				dbGoTop()
+				dbSetOrder(1)
+				If dbSeek(xFilial("SZA")+"R"+SE1->E1_PREFIXO+SE1->E1_NUM+SE1->E1_CLIENTE+SE1->E1_LOJA+SE1->E1_PARCELA)
+					Reclock("SZA",.F.)
+						SZA->ZA_DECRESC := SE1->E1_DECRESC 
+						SZA->ZA_NUMBCO  := SE1->E1_NUMBCO 
+						SZA->ZA_IDCNAB  := SE1->E1_IDCNAB
+					SZA->( msunlock() )
+				Endif
+
+			//////////////////////////////////////////////////////////////////
+			// Santander
+			//////////////////////////////////////////////////////////////////
+
+			ElseIf AllTrim(SA1->A1_BCO1) == "033" // Implantação cobrança Safra - FWNM - 20/07/2023
+
+				DbSelectArea("SEE")
+				DbSetOrder(1)
+				DbSeek(xFilial("SEE")+"033") // +MV_PAR05+MV_PAR06+MV_PAR09 )   
+
+				aAdd(_aTitSant, {	.F.,;						// 1=Mark
+				SE1->E1_PREFIXO,;		// 2=Prefixo do Título
+				SE1->E1_NUM,;			// 3=Número do Título
+				SE1->E1_PARCELA,;		// 4=Parcela do Título
+				SE1->E1_TIPO,;			// 5=Tipo do Título
+				SE1->E1_NATUREZ,;		// 6=Natureza do Título
+				SE1->E1_CLIENTE,;		// 7=Cliente do título
+				SE1->E1_LOJA,;			// 8=Loja do Cliente
+				SE1->E1_NOMCLI,;		// 9=Nome do Cliente
+				SE1->E1_EMISSAO,;		//10=Data de Emissão do Título
+				SE1->E1_VENCTO,;		//11=Data de Vencimento do Título
+				SE1->E1_VENCREA,;		//12=Data de Vencimento Real do Título
+				SE1->E1_VALOR,;			//13=Valor do Título
+				SE1->E1_HIST,;			//14=Histótico do Título
+				SE1->(RECNO()),;		//15=Número do registro no arquivo
+				SE1->E1_NUMBCO,;		//16=Nosso Número
+				SE1->E1_DECRESC,;		//17=DESCONTO
+				_nDescAtua,;            // 18=DESCONTO ATUAL  
+				_nDescNovo,;            //19=DESCONTO NOVO 
+				_cDescDife;              //20=DESCRICAO ALTERACAO DESCONTO
+				})
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//ATUALIZA NO BILHETE A DATA DA EFETIVACAO DO BILHETE
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If MV_PAR08 == 0// SE1->E1_DESCFIN > 0
+					MV_PAR08 := SE1->E1_DECRESC
+				Endif
+
+				If MV_PAR08 > 0// SE1->E1_DESCFIN > 0
+
+					dbSelectArea("SZP")
+					_cNumSzp := GETSXENUM('SZP','ZP_CODIGO')
+					ConfirmSX8()
+
+					Reclock("SZP",.T.)
+						SZP->ZP_FILIAL  := xFilial("SZP") 
+						SZP->ZP_CODIGO  := _cNumSzp 
+						SZP->ZP_ITEM    := "01" 
+						SZP->ZP_ASSUNTO := "000005"
+						SZP->ZP_DESCASS := "EVENTO"
+						SZP->ZP_OCORREN := "000006" 
+						SZP->ZP_DESCOCO := "DECRESCIMO BOLETO"
+						SZP->ZP_SOLUCAO := "000001"
+						SZP->ZP_DESCSOL := "DESCONCO CONCEDIDO"
+						SZP->ZP_OPERADO := RetCodUsr()
+						SZP->ZP_DESCOPE := UsrFullName(SZP->ZP_OPERADO)                                                                          
+						SZP->ZP_DATA    := dDataBase
+						SZP->ZP_STATUS  := "2"
+						SZP->ZP_OBS     := "DECRES ORIG = R$ "+Transform( SE1->E1_DECRESC,"@re 999,999.99" ) + ". DECRES NOVO = R$ "+Transform( MV_PAR08,"@re 999,999.99" )+ ". Cliente : " +SE1->E1_NOMCLI
+						SZP->ZP_DTEXEC  := dDataBase
+						SZP->ZP_VENDA   := SE1->E1_NUM //SZH->ZH_CODIGO
+					SZP->( msUnlock() )
+					//Endif
+
+					DbSelectArea("SE1")
+					RecLock("SE1",.F.)
+						SE1->E1_DECRESC := MV_PAR08
+						SE1->E1_SDDECRE := MV_PAR08
+					SE1->( msUnLock() )
+					//Endif
+
+				Endif
+
+			//////////////////////////////////////////////////////////////////
+			// Safra
+			//////////////////////////////////////////////////////////////////
+
+			ElseIf AllTrim(SA1->A1_BCO1) == "422" // Implantação cobrança Safra - FWNM - 20/07/2023
+
+				//Aadd(_aTitSafra,{"","",0,"","","","","","","","","","","","","",0,_nDescAtua,_nDescNovo,_cDescDife})
+				//Aadd(_aTitSafra,{"","",0,"","","","","","","","","","","","","",0,_nDescAtua,_nDescNovo,_cDescDife,SZ4->Z4_NOTA,SE1->E1_VALOR,SE1->E1_DECRESC})
+				Aadd(_aTitSafra,{"","",0,"","","","","","","","","","","","","",0,_nDescAtua,_nDescNovo,_cDescDife,SZ4->Z4_NOTA,SE1->E1_VALOR,SE1->E1_DECRESC,"",""})
+
+				_cNum := PadR(AllTrim(SE1->E1_PREFIXO),TamSX3("E1_PREFIXO")[1]) + PadR(AllTrim(SE1->E1_NUM),TamSX3("E1_NUM")[1]) + PadR(AllTrim(SE1->E1_PARCELA),TamSX3("E1_PARCELA")[1])
+				_aTitSafra[_nCont][01] := _cNum            // Prexifo+Numero+Parcela do Titulo
+				_aTitSafra[_nCont][02] := SE1->E1_VENCTO   // Vencimento
+
+				If MV_PAR08 == 0// SE1->E1_DESCFIN > 0
+					MV_PAR08 := SE1->E1_SDDECRE //SE1->E1_DECRESC
+				Endif
+
+				If MV_PAR08 > 0// SE1->E1_DESCFIN > 0
+
+					_aTitSafra[_nCont][17] := MV_PAR08
+
+					dbSelectArea("SZP")
+					_cNumSzp := GETSXENUM('SZP','ZP_CODIGO')
+					ConfirmSX8()
+
+					Reclock("SZP",.T.)
+						SZP->ZP_FILIAL  := xFilial("SZP") 
+						SZP->ZP_CODIGO  := _cNumSzp 
+						SZP->ZP_ITEM    := "01" 
+						SZP->ZP_ASSUNTO := "000005"
+						SZP->ZP_DESCASS := "EVENTO"
+						SZP->ZP_OCORREN := "000006" 
+						SZP->ZP_DESCOCO := "DECRESCIMO BOLETO"
+						SZP->ZP_SOLUCAO := "000001"
+						SZP->ZP_DESCSOL := "DESCONCO CONCEDIDO"
+						SZP->ZP_OPERADO := RetCodUsr()
+						SZP->ZP_DESCOPE := UsrFullName(SZP->ZP_OPERADO)                                                                          
+						SZP->ZP_DATA    := dDataBase
+						SZP->ZP_STATUS  := "2"
+						SZP->ZP_OBS     := "DECRES ORIG = R$ "+Transform( SE1->E1_DECRESC,"@re 999,999.99" ) + ". DECRES NOVO = R$ "+Transform( MV_PAR08,"@re 999,999.99" )+ ". Cliente : " +SE1->E1_NOMCLI
+						SZP->ZP_DTEXEC  := dDataBase
+						SZP->ZP_VENDA   := SE1->E1_NUM //SZH->ZH_CODIGO
+					SZP->( msUnlock() )
+
+					DbSelectArea("SE1")
+
+					If Empty(SE1->E1_BAIXA)
+
+						If MV_PAR08 > 0
+							RecLock("SE1",.F.)
+								SE1->E1_DECRESC := MV_PAR08
+								SE1->E1_SDDECRE := MV_PAR08
+							SE1->( msUnLock() )
+						EndIf
+
+					Else
+
+						If MV_PAR08 > 0
+
+							If SE1->E1_DECRESC <> MV_PAR08
+								RecLock("SE1",.F.)
+									SE1->E1_DECRESC := MV_PAR08
+									SE1->E1_SDDECRE := MV_PAR08
+								SE1->( msUnLock() )
+							EndIf
+						
+						EndIf
+
+					EndIf
+
+					/*
+					If !Empty(SE1->E1_BAIXA)
+
+						cSql := " UPDATE " + RetSqlName("SE5") + " SET E5_VLDESCO=0, E5_VLDECRE=0
+						cSql += " WHERE E5_FILIAL='"+FWxFilial("SE5")+"' 
+						cSql += " AND E5_PREFIXO='"+SE1->E1_PREFIXO+"' 
+						cSql += " AND E5_NUMERO='"+SE1->E1_NUM+"' 
+						cSql += " AND E5_PARCELA='"+SE1->E1_PARCELA+"' 
+						cSql += " AND E5_TIPO='"+SE1->E1_TIPO+"' 
+						cSql += " AND E5_TIPO='"+SE1->E1_TIPO+"' 
+						cSql += " AND E5_CLIFOR='"+SE1->E1_CLIENTE+"' 
+						cSql += " AND E5_LOJA='"+SE1->E1_LOJA+"' 
+						cSql += " AND E5_MOTBX='CMP' 
+						cSql += " AND E5_VLDESCO>0 
+						cSql += " AND E5_VLDECRE>0 
+						cSql += " AND D_E_L_E_T_=''
+						
+						tcSqlExec(cSql)
+
+					EndIf
+					*/
+
+				Endif
+
+				///////////
+
+				If Empty(SE1->E1_BAIXA)
+					nSldSE1 := SE1->E1_SALDO //"Saldo T¡tulo"
+				Else
+					If SE1->E1_SALDO == SE1->E1_VALOR		// não houve baixa do título principal
+						nSldSE1 := SE1->E1_SALDO   //"Saldo T¡tulo"		
+					Else
+						nSldSE1 := Iif(Empty(SE1->E1_SDACRES),SE1->E1_SALDO-SE1->E1_SDDECRE,SE1->E1_SALDO+SE1->E1_SDACRES) //"Saldo T¡tulo"
+					EndIf	
+				EndIf	
+
+				nValAces  := 0
+				nSaldoE1  := 0
+				nJuros    := 0
+				nMultaTit := 0
+				nDescFin  := 0
+
+				//Abatimento
+				nAbatim	 := SomaAbat(SE1->E1_PREFIXO, SE1->E1_NUM, SE1->E1_PARCELA,"R",SE1->E1_MOEDA,,SE1->E1_CLIENTE,SE1->E1_LOJA)
+
+				//Desconto Financeiro
+				If SE1->E1_VENCREA >= dDataBase .AND. SE1->E1_SALDO > 0
+					nDescFin   := FaDescFin("SE1",dDataBase,SE1->E1_SALDO-nAbatim,SE1->E1_MOEDA)
+				Endif
+
+				//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+				//³ Se o Saldo ja estiver Zero, nao calcular os juros.           ³
+				//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+				If SE1->E1_SALDO > 0
+					
+					lClcMultLj := ( SuperGetMv("MV_JURTIPO",,"") == "L" ) .Or. ( SuperGetMv("MV_LJINTFS", ,.F.) )
+					If lClcMultLj
+
+						If SE1->E1_SALDO = 0
+							dBaixa := SE1->E1_BAIXA
+							nSaldoE1 := SE1->E1_VALOR
+						Else
+							nSaldoE1 := SaldoTit( SE1->E1_PREFIXO ,SE1->E1_NUM  ,SE1->E1_PARCELA ,SE1->E1_TIPO , ;
+												SE1->E1_NATUREZ ,"R"           ,SE1->E1_CLIENTE , 1           , ;
+												NIL             ,NIL           ,SE1->E1_LOJA    ,NIL          , ;
+												SE1->E1_TXMOEDA )
+						Endif
+
+						//*ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+						//*³ Calcula o valor da Multa  :funcao LojxRMul :fonte Lojxrec          ³
+						//*ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+						nMultaTit := LojxRMul(,,,nSaldoE1,SE1->E1_ACRESC,SE1->E1_VENCREA,dDataBase,,SE1->E1_MULTA,,SE1->E1_PREFIXO,SE1->E1_NUM,SE1->E1_PARCELA,SE1->E1_TIPO,SE1->E1_CLIENTE,SE1->E1_LOJA,"SE1",.T.)
+					EndIf
+					fa070Juros(1, nSaldoE1)
+					
+					If	ExistFunc('FValAcess')
+						nValAces := FValAcess(SE1->E1_PREFIXO,SE1->E1_NUM,SE1->E1_PARCELA,SE1->E1_TIPO,SE1->E1_CLIENTE,SE1->E1_LOJA, SE1->E1_NATUREZ,!Empty(SE1->E1_BAIXA),,"R",SE1->E1_BAIXA,,SE1->E1_MOEDA)		
+					EndIf
+
+				Endif
+
+				If Empty(SE1->E1_BAIXA)
+					nSldSE1 := SE1->E1_SALDO + SE1->E1_SDACRES - SE1->E1_SDDECRE + nJuros + nValAces + nMultaTit - nAbatim - nDescFin  //"Saldo T¡tulo (Impostos)"
+				Else	
+					If SE1->E1_SALDO = 0 
+						nSldSE1 := SE1->E1_SALDO + SE1->E1_SDACRES - SE1->E1_SDDECRE + nJuros + nValAces + nMultaTit //"Saldo T¡tulo (Impostos)"
+					Else
+						nSldSE1 := SE1->E1_SALDO + SE1->E1_SDACRES - SE1->E1_SDDECRE + nJuros + nValAces + nMultaTit - nAbatim - nDescFin //"Saldo T¡tulo (Impostos)"
+					EndIf
+				EndIf
+
+				//////////
+
+				// ALTERACAO PARA CONTEMPLAR TODAS ALTERACOES DE DESCONTO/ABAT/ACRESIMO NO S TITULOS...USANDO FUNCAO SALDOTIT - CONSIGO REIMPRIMIR NA DATA
+				_aTitSafra[_nCont][17] := 0 // MV_PAR08
+				_aTitSafra[_nCont][03] := nSldSE1
+				//_aTitSafra[_nCont][03] := Round(SaldoTit(SE1->E1_PREFIXO,SE1->E1_NUM,SE1->E1_PARCELA,SE1->E1_TIPO,SE1->E1_NATUREZ,"R",SE1->E1_CLIENTE,1,dDataBase,,SE1->E1_LOJA,,SE1->E1_TXMOEDA,1),2)
+
+				_aTitSafra[_nCont][22] := SE1->E1_VALOR
+				_aTitSafra[_nCont][23] := SE1->E1_DECRESC
+
+				DbSelectArea("SEE")
+				DbSetOrder(1)
+				If DbSeek(xFilial("SEE")+"422") // MV_PAR04+MV_PAR05+MV_PAR06+MV_PAR09 )   
+					// Calcula Nosso Numero
+					fCalcBlt(SE1->E1_PREFIXO,SE1->E1_NUM,SE1->E1_PARCELA,SE1->E1_TIPO)
+				Else
+					MsgAlert("Nao encontrou Parametros Banco !")
+					Return(Nil)
+				Endif
+
+				_aTitSafra[_nCont][04] := SE1->E1_NUMBCO
+
+				cDigAgen := ""
+				_aTitSafra[_nCont][05] := "04800" // agencia
+				_aTitSafra[_nCont][08] := StrZero(Day(SE1->E1_EMISSAO),2)+"/"+StrZero(Month(SE1->E1_EMISSAO),2)+"/"+StrZero(Year(SE1->E1_EMISSAO),4)
+				_aTitSafra[_nCont][16] := "005840731" 	  // Numero da Conta Corrente
+
+				_aTitSafra[_nCont][06] := Right(Alltrim(SEE->EE_CODEMP),9)   // Codigo do Cedente
+				_aTitSafra[_nCont][07] := "01" // carteira
+
+				_aTitSafra[_nCont][09] := SA1->A1_NOME
+				If !Empty(SA1->A1_ENDCOB)
+					_aTitSafra[_nCont][10] := SA1->A1_ENDCOB
+					_aTitSafra[_nCont][11] := SA1->A1_MUNC
+					_aTitSafra[_nCont][12] := SA1->A1_ESTC
+					_aTitSafra[_nCont][13] := SA1->A1_CEPC
+				Else
+					_aTitSafra[_nCont][10] := SA1->A1_END
+					_aTitSafra[_nCont][11] := SA1->A1_MUN
+					_aTitSafra[_nCont][12] := SA1->A1_EST
+					_aTitSafra[_nCont][13] := SA1->A1_CEP
+				Endif
+				_aTitSafra[_nCont][14] := SA1->A1_CGC
+				_aTitSafra[_nCont][15] := StrZero(Day(dDatabase),2)+"/"+StrZero(Month(dDatabase),2)+"/"+StrZero(Year(dDatabase),4)
+
+				// GRAVA SZA PARA AJUSTAR NA ALTERACAO
+				dbSelectArea("SZA")
+				dbGoTop()
+				dbSetOrder(1)
+				If dbSeek(xFilial("SZA")+"R"+SE1->E1_PREFIXO+SE1->E1_NUM+SE1->E1_CLIENTE+SE1->E1_LOJA+SE1->E1_PARCELA)
+					Reclock("SZA",.F.)
+						SZA->ZA_DECRESC := SE1->E1_DECRESC 
+						SZA->ZA_NUMBCO  := SE1->E1_NUMBCO 
+						SZA->ZA_IDCNAB  := SE1->E1_IDCNAB
+					SZA->( msunlock() )
+				Endif
+
+			Endif
+
+			_nCont += 1
+			DbSelectArea("SE1")
+			DbSkip()
+
+			If SM0->M0_CODIGO == "17" .AND. SA1->A1_BCO1 <> "033" 
+				MV_PAR05 := MV_PAR05O
+				MV_PAR06 := MV_PAR06O
+			Endif
+
+		EndDo
+	
+	EndIf
+
+	// Bradesco
+	If Len(_aTitulos) > 0 
+		ImpBradesco()
+	Endif
+
+	// Santander
+	If Len(_aTitSant) > 0
+		ImpSantander(_aTitSant)
+	endif	
+
+	// Safra
+	If Len(_aTitSafra) > 0
+		ImpSafra(_aTitSafra)
+		//ImpNewSafra(_aTitSafra)
+	endif	
+
+Return (.T.)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao	 ³ RFINB01	³ Autor ³                       ³ Data ³ 28/04/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descricao ³ Impressao do BoletoBradesco                               ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ CIS Eletronica                                             ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function ImpBradesco()
+
+	Private _cBarra  := SPACE(44)
+	Private _nPosHor := 0
+	Private _nLinha  := 0
+	Private _nEspLin := 0
+	Private _nTxtBox := 0
+	Private _nPosVer := 0
+
+
+	nDigbol    := SPACE(1)
+	nDigbar    := SPACE(1)
+	NFi        := Space(6)
+	NFf        := Space(6)
+	Serie      := Space(3)
+	Nnumero    := Space(11)
+	_cLinha     := ""
+	Fator      := CTOD("07/10/1997")
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Tela de Entrada de Dados                                     ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+	FiltImp    := ""
+	aInfo      := {}
+	nHeight    := 15
+	lBold      := .F.
+	lUnderLine := .F.
+	lPixel     := .T.
+	lPrint     := .F.
+	//                              Font              W  H  Bold  - Italic - Underline - Device
+	//oFont1 := oSend(TFont(),"New","Arial"          ,0,14,,.F.,,,,.F.,.F.,,,,,,oPrn)
+
+	oFont06  := TFont():New( "Arial",,06,,.F.,,,,,.F. )
+	oFont06B := TFont():New( "Arial",,06,,.T.,,,,,.F. )
+	oFont07  := TFont():New( "Arial",,07,,.F.,,,,,.F. )
+	oFont07B := TFont():New( "Arial",,07,,.T.,,,,,.F. )
+	oFont08  := TFont():New( "Arial",,08,,.F.,,,,,.F. )                          	
+	oFont08B := TFont():New( "Arial",,08,,.T.,,,,,.F. )
+	oFont09  := TFont():New( "Arial",,09,,.F.,,,,,.F. )
+	oFont09B := TFont():New( "Arial",,09,,.T.,,,,,.F. )
+	oFont10  := TFont():New( "Arial",,10,,.F.,,,,,.F. )
+	oFont10B := TFont():New( "Arial",,10,,.T.,,,,,.F. )
+	oFont11  := TFont():New( "Arial",,11,,.F.,,,,,.F. )
+	oFont11B := TFont():New( "Arial",,11,,.T.,,,,,.F. )
+	oFont12  := TFont():New( "Arial",,12,,.F.,,,,,.F. )
+	oFont12B := TFont():New( "Arial",,12,,.T.,,,,,.F. )
+	oFont13  := TFont():New( "Arial",,13,,.F.,,,,,.F. )
+	oFont13B := TFont():New( "Arial",,13,,.T.,,,,,.F. )
+	oFont14  := TFont():New( "Arial",,14,,.F.,,,,,.F. )
+	oFont14B := TFont():New( "Arial",,14,,.T.,,,,,.F. )
+	oFont15  := TFont():New( "Arial",,15,,.F.,,,,,.F. )
+	oFont15B := TFont():New( "Arial",,15,,.T.,,,,,.F. )
+	oFont16  := TFont():New( "Arial",,16,,.F.,,,,,.F. )
+	oFont16B := TFont():New( "Arial",,16,,.T.,,,,,.F. )
+	oFont17  := TFont():New( "Arial",,17,,.F.,,,,,.F. )
+	oFont17B := TFont():New( "Arial",,17,,.T.,,,,,.F. )
+	oFont18  := TFont():New( "Arial",,18,,.F.,,,,,.F. )
+	oFont18B := TFont():New( "Arial",,18,,.T.,,,,,.F. )
+	oFont19  := TFont():New( "Arial",,19,,.F.,,,,,.F. )
+	oFont19B := TFont():New( "Arial",,19,,.T.,,,,,.F. )
+	oFont20  := TFont():New( "Arial",,20,,.F.,,,,,.F. )
+	oFont20B := TFont():New( "Arial",,20,,.T.,,,,,.F. )
+	oFont21  := TFont():New( "Arial",,21,,.F.,,,,,.F. )
+	oFont21B := TFont():New( "Arial",,21,,.T.,,,,,.F. )
+	oFont22  := TFont():New( "Arial",,22,,.F.,,,,,.F. )
+	oFont22B := TFont():New( "Arial",,22,,.T.,,,,,.F. )
+	oFont23  := TFont():New( "Arial",,23,,.F.,,,,,.F. )
+	oFont23B := TFont():New( "Arial",,23,,.T.,,,,,.F. )
+	oFont24  := TFont():New( "Arial",,24,,.F.,,,,,.F. )
+	oFont24B := TFont():New( "Arial",,24,,.T.,,,,,.F. )
+	oFont25  := TFont():New( "Arial",,25,,.F.,,,,,.F. )
+	oFont25B := TFont():New( "Arial",,25,,.T.,,,,,.F. )
+	oFont26  := TFont():New( "Arial",,26,,.F.,,,,,.F. )
+	oFont26B := TFont():New( "Arial",,26,,.T.,,,,,.F. )
+	oFont27  := TFont():New( "Arial",,27,,.F.,,,,,.F. )
+	oFont27B := TFont():New( "Arial",,27,,.T.,,,,,.F. )
+	oFont28  := TFont():New( "Arial",,28,,.F.,,,,,.F. )
+	oFont28B := TFont():New( "Arial",,28,,.T.,,,,,.F. )
+	oFont29  := TFont():New( "Arial",,29,,.F.,,,,,.F. )
+	oFont29B := TFont():New( "Arial",,29,,.T.,,,,,.F. )
+	oFont30  := TFont():New( "Arial",,30,,.F.,,,,,.F. )
+	oFont30B := TFont():New( "Arial",,30,,.T.,,,,,.F. )
+
+	oprn     := TMSPrinter():New()                                                               
+	oprn:setup()
+
+	npag  :=1
+	serie := ""
+	nfi   := ""
+	nff   := ""
+
+	For _nCont := 1 to len(_aTitulos)
+		// Posicionamento Horizontal
+		_nPosHor := 01
+		_nLinha  := 01
+		_nEspLin := 84
+
+		// Posicionamento Vertical
+		_nPosVer := 10
+
+		// Posicionamento do Texto Dentro do Box
+		_nTxtBox := 05
+
+		//	oPRINTER(SETPAPERSIZE(9)) // <==== ajuste para papel A4
+		oprn:SETPAPERSIZE(9) // <==== ajuste para papel A4
+
+		oprn:StartPage()
+
+		RFINB01A()
+
+		oprn:EndPage()
+		npag:= npag + 1
+
+		If (_aTitulos[_nCont,18] + _aTitulos[_nCont,19]) <> 0 .And. !Empty(_aTitulos[_nCont,20])
+
+			//EmailDesc(_aTitulos[_nCont][18],_aTitulos[_nCont][19],_aTitulos[_nCont][20])
+
+
+		Endif 
+
+	Next _nCont
+	//oprn:setup()
+
+	oprn:Preview()
+
+	//Visualizacao e finalizacao do relatorio
+	_cArq := CRIATRAB(Nil,.F.)
+
+	cFileJpeg := "\TREPORT\"+_cArq
+	_cFileAttach := "\TREPORT\"+_cArq+"_pag1.jpg"
+	oPrn:SaveAllAsJpeg( cFileJpeg, 900, 1300, 140 )       
+	oPrn:End() //ORIGINAL certo
+
+
+	_aFileAttach := {}
+
+	// ADICIONAR PAGINAS
+	If File("\TREPORT\"+_cArq+"_pag1.jpg")
+		Aadd(_aFileAttach,{("\TREPORT\"+_cArq+"_pag1.jpg")})
+	Endif
+
+	If File("\TREPORT\"+_cArq+"_pag2.jpg")
+		Aadd(_aFileAttach,{("\TREPORT\"+_cArq+"_pag2.jpg")})
+	Endif
+
+	If File("\TREPORT\"+_cArq+"_pag3.jpg")
+		Aadd(_aFileAttach,{("\TREPORT\"+_cArq+"_pag3.jpg")})
+	Endif
+
+	If File("\TREPORT\"+_cArq+"_pag4.jpg")
+		Aadd(_aFileAttach,{("\TREPORT\"+_cArq+"_pag4.jpg")})
+	Endif
+
+	If File("\TREPORT\"+_cArq+"_pag5.jpg")
+		Aadd(_aFileAttach,{("\TREPORT\"+_cArq+"_pag5.jpg")})
+	Endif
+	//
+
+
+
+	//oPrn:Print() // descomentar esta linha para imprimir
+	/*
+	If msgyesno(" Deseja ENviar o Boleto por Email ?")
+
+		Private oCampo1         
+		Private _cCampo1 := Space(40)
+
+		DEFINE MSDIALOG oTela from 000,000 to 150,400 title "Dados Clientes" pixel
+
+		@ 010,005 Say OemToAnsi('Email') PIXEL COLORS CLR_HBLUE OF oTela 
+		@ 025,005 MsGet oCampo1 VAR _cCampo1 F3 "_EM" SIZE 150,08 PIXEL OF oTela 
+
+		@ 045,040 BUTTON "Confirma" OF oTela SIZE 030,015 PIXEL ACTION (_nOpca := 1, Close(oTela))
+		@ 045,090 BUTTON "Cancela"  OF oTela SIZE 030,015 PIXEL ACTION (_nOpca := 2, Close(oTela))
+
+		ACTIVATE MSDIALOG oTela CENTER                                             
+
+		If _nOpca == 1
+			If !EmailCob(_cCampo1)                    
+				Alert(" Erro de Email !!! ")
+			Endif
+		Endif
+
+
+	Endif
+	*/
+
+	ms_flush()
+
+
+	// Restaura filtro
+	DbSelectArea("SE1")
+	Set Filter To &_cFiltro
+
+Return (.T.)
+
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Funcao	 ³ RFINB01A	³ Autor ³                       ³ Data ³ 05/05/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descricao ³ Impressao do Boleto                                        ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso		 ³ CIS Eletronica                                             ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function RFINB01A()
+
+	Local _cNomeEmp := ""
+	Local _JurosBras := 0.0016665
+
+	If CNUMEMP == "1001"
+		_cNomeEmp := "FORT FRUIT COMERCIAL AGRICOLA"
+	Else        
+		_cNomeEmp := SM0->M0_NOMECOM
+	Endif	
+	// Monta codigo de barras do titulo
+	RFINB01B()
+	// Monta Linha digitavel
+	RFINB01D()
+
+	//oprn:StartPage()
+
+	// Comprovante de entrega - Canhoto
+	// Box Cedente
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+25,_nTxtBox+0140,"Bradesco",ofont14B,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nTxtBox+0366,"|237-2|",ofont22B,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+10,_nPosVer+1650,"Comprovante de Entrega",ofont14B,100)
+	_nLinha  := _nLinha + 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0830)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Cedente",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin+30)+_nTxtBox,_nPosVer+0010,_cNomeEmp,ofont08,100)
+
+	// Box Agencia/Codigo Cedente
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0830,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1180)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0840,"Agência/Código Cedente",ofont08,100)          
+	If CNUMEMP == "1001" .OR. CNUMEMP == "0101" .OR. CNUMEMP == "0201" .OR. CNUMEMP == "0601" .OR. CNUMEMP == "9801" .OR. CNUMEMP == "1401"
+		oprn:say(_nPosHor+((_nLinha-1)*_nEspLin+30)+_nTxtBox,_nPosVer+0850,transform(_aTitulos[_nCont][05],"@R 9999")+"-9/00"+_aTitulos[_nCont][16],ofont08B,100)
+	Else
+		oprn:say(_nPosHor+((_nLinha-1)*_nEspLin+30)+_nTxtBox,_nPosVer+0850,transform(_aTitulos[_nCont][05],"@R 9999")+"/"+_aTitulos[_nCont][16],ofont08B,100)
+	Endif   
+
+	// Box Motivos nao entrega
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1180,_nPosHor+(_nLinha*_nEspLin)+(2*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1290,"Motivos de não entrega(para uso da empresa entregadora)",ofont08,100)
+
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin+0050)+_nTxtBox,_nPosVer+1210,"( )Mudou-se",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin+0050)+_nTxtBox,_nPosVer+1490,"( )Ausente",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin+0050)+_nTxtBox,_nPosVer+1820,"( )Não existe n. indicado",ofont08,100)
+
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin+0100)+_nTxtBox+0025,_nPosVer+1210,"( )Recusado",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin+0100)+_nTxtBox+0025,_nPosVer+1490,"( )Não Procurado",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin+0100)+_nTxtBox+0025,_nPosVer+1820,"( )Falecido",ofont08,100)
+
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin+0150)+_nTxtBox+0050,_nPosVer+1210,"( )Desconhecido",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin+0150)+_nTxtBox+0050,_nPosVer+1490,"( )Endereço Insuficiente",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin+0150)+_nTxtBox+0050,_nPosVer+1820,"( )Outros (anotar no verso)",ofont08,100)
+
+	// Box Sacado
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0830)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Sacado",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0010,_aTitulos[_nCont][09],ofont08,100)
+
+	// Box Nosso Numero
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0830,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1180)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0840,"Nosso Número",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0860,_aTitulos[_nCont][07]+"/"+transform(_aTitulos[_nCont][04],"@R 99999999999-X"),ofont08B,100)
+
+	// Box Vencimento
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0200)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Vencimento",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0030,StrZero(Day(_aTitulos[_nCont][02]),2)+"/"+StrZero(Month(_aTitulos[_nCont][02]),2)+"/"+StrZero(Year(_aTitulos[_nCont][02]),4),ofont08B,100)
+
+	// Box Numero do Documento
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0200,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0520)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0210,"N. do Documento",ofont08,100)
+	//If SM0->M0_CODIGO == "02" .AND. !Empty(MV_PAR07)
+	If !Empty(MV_PAR07)
+
+
+		oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0300,SubStr(TRIM(MV_PAR07),1,40),ofont08,100)
+
+	Else
+
+		oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0300,_aTitulos[_nCont][01],ofont08,100)
+
+	Endif	
+
+	// Box Especie Moeda
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0520,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0830)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0530,"Espécie Moeda",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0650,"R$",ofont08,100)
+
+	// Box Valor do Documento
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0830,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1180)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0840,"Valor do Documento",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0940,transform(_aTitulos[_nCont][03],"@E 999,999,999.99"),ofont08B,100)
+
+	// Box Recebimento bloqueto
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0340)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Recebi(emos) o bloqueto",ofont08,100)
+
+	// Box Data
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0340,_nPosHor+(_nLinha*_nEspLin),_nPosVer+560)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0350,"Data",ofont08,100)
+
+	// Box Assinatura
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0560,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1180)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0570,"Assinatura",ofont08,100)
+
+	// Box Data
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1180,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1520)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1190,"Data",ofont08,100)
+
+	// Box Entregador
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1520,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1530,"Entregador",ofont08,100)
+
+	// Box Local de Pagamento
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer    ,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1910)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox    ,_nPosVer+0010,"Local de Pagamento",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox    ,_nPosVer+0275,"BANCO BRADESCO S.A.",ofont09B,150)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+33 ,_nPosVer+0275,"PAGAR PREFERENCIALMENTE EM QUALQUER AGENCIA BRADESCO.",ofont09B,150)
+
+	// Box Data de Processamento
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1910,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1920,"Data de Processamento",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+1980,_aTitulos[_nCont][15],ofont08,100)
+
+	// Box Recibo do Sacado
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+25,_nTxtBox+0140,"Bradesco",ofont14B,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nTxtBox+0366,"|237-2|",ofont22B,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1720,"Recibo do Sacado",ofont14B,100)
+
+	// Box Local de Pagamento
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer    ,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1650)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox    ,_nPosVer+0010,"Local de Pagamento",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox    ,_nPosVer+0275,"BANCO BRADESCO S.A.",ofont09B,150)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+33 ,_nPosVer+0275,"PAGAR PREFERENCIALMENTE EM QUALQUER AGENCIA BRADESCO.",ofont09B,150)
+
+	// Box Logotipo
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin)+4*_nEspLin,_nPosVer+2230)
+	oprn:say(_nPosHor+((_nLinha-1)*(_nEspLin-2)),_nPosVer+1695,"|          |",ofont14B,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1725,"237-2",ofont12B,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1870,"Recibo do Sacado",ofont10B,100)
+
+	// Box Cedente
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1650)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Cedente",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin+30)+_nTxtBox,_nPosVer+0010,_cNomeEmp,ofont08,100)
+
+	// Box Data do documento
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0420)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Data do documento",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0100,_aTitulos[_nCont][08],ofont08,100)
+
+	// Box Numero do Documento
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0420,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0790)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0430,"N° do documento",ofont08,100)
+
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0530,_aTitulos[_nCont][21],ofont08,100) // NF
+	//oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0530,_aTitulos[_nCont][01],ofont08,100) // BILHETE
+
+	// Box Especie Doc
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0790,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1050)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0800,"Espécie Doc",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0900,"DM",ofont08,100)
+
+	// Box Aceite
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1050,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1170)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1060,"Aceite",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+1080,"Não",ofont08,100)
+
+	// Box Data do Processamento
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1170,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1650)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1180,"Data do Processamento",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+1280,_aTitulos[_nCont][15],ofont08,100)
+
+	// Box Uso do Banco
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0300)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Uso do Banco",ofont08,100)
+	//oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0050,"08650",ofont08,100)
+
+	// Box Cip
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0300,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0420)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0310,"Cip",ofont08,100)
+	//oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0315,"000",ofont08,100)
+
+	// Box Carteira
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0420,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0552)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0430,"Carteira",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0480,_aTitulos[_nCont][07],ofont08,100)
+
+	// Box Especie Moeda
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0552,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0790)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0562,"Espécie moeda",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0652,"R$",ofont08,100)
+
+	// Box Quantidade
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0790,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1170)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0800,"Quantidade",ofont08,100)
+
+	// Box Valor
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1170,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1650)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1180,"Valor",ofont08,100)
+
+	// Box Logotipo
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1700,"Bradesco",ofont30B,100)
+
+	// Box Instrucoes
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin)+9*_nEspLin,_nPosVer+1650)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+1680,"Pagável nas agências Bradesco",ofont10B,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+10,_nPosVer+0010,"Instruções de responsabilidade do cedente.",ofont09B,100)
+
+	// Box Vencimento
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"Vencimento",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+2060,StrZero(Day(_aTitulos[_nCont][02]),2)+"/"+StrZero(Month(_aTitulos[_nCont][02]),2)+"/"+StrZero(Year(_aTitulos[_nCont][02]),4),ofont08B,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0010,"*** Valores Expressos em R$ ***",ofont09B,100)
+
+	// Box Agencia/Codigo Cedente
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"Agência/Código Cedente",ofont08,100)
+
+	//oprn:say(_nPosHor+((_nLinha-1)*_nEspLin+30)+_nTxtBox,_nPosVer+1940,transform(_aTitulos[_nCont][05],"@R 9999-9")+"/"+transform(_aTitulos[_nCont][06],"@R 9999999"),ofont08B,100)
+	If CNUMEMP == "1001" .OR. CNUMEMP == "0101" .OR. CNUMEMP == "0201" .OR. CNUMEMP == "0601" .OR. CNUMEMP == "9801" .OR. CNUMEMP == "1401"
+		oprn:say(_nPosHor+((_nLinha-1)*_nEspLin+30)+_nTxtBox,_nPosVer+1940,transform(_aTitulos[_nCont][05],"@R 9999")+"-9/00"+_aTitulos[_nCont][16],ofont08B,100)
+	Else
+		oprn:say(_nPosHor+((_nLinha-1)*_nEspLin+30)+_nTxtBox,_nPosVer+1940,transform(_aTitulos[_nCont][05],"@R 9999")+"/"+_aTitulos[_nCont][16],ofont08B,100)
+	Endif 
+
+
+	//_nLinha  += 1
+	//oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	//oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"4(+) Mora/Multa",ofont08,100)
+
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0010,"Apos o Vencimento Mora dia R$ "+transform(_aTitulos[_nCont][03] * _JurosBras,"@E 999,999,999.99"),ofont09B,100)
+	//oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0010,"Apos o Vencimento Mora dia R$ "+transform(_aTitulos[_nCont][03]*0.003333,"@E 999,999,999.99"),ofont08,100)
+	// Box Outros acrescimos
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"5(+) Outros Acréscimos",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+10,_nPosVer+0010,"APOS O VENCIMENTO, MULTA DE 2,00 %",ofont09B,100)
+
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+80,_nPosVer+0010,"Referente Bilhete "+ AllTrim(_aTitulos[_nCont,1]),ofont08,100)
+
+	// Box Cart./nosso numero
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"Cart./nosso número",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+1960,_aTitulos[_nCont][07]+"/"+transform(_aTitulos[_nCont][04],"@R 99999999999-X"),ofont08B,100)
+	//oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0010,"Apos o Vencimento Mora dia R$ "+transform(_aTitulos[_nCont][03]*0.0003333,"@E 999,999,999.99"),ofont08,100)
+
+	// Box Valor do documento
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"1(=) Valor do documento",ofont08,100)
+
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+2000,transform(_aTitulos[_nCont][22],"@E 999,999,999.99"),ofont08B,100)
+	//oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+2000,transform(_aTitulos[_nCont][03],"@E 999,999,999.99"),ofont08B,100)
+
+	If !Empty(MV_PAR07)
+		oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0010,"Referente Notas "+Trim(mv_par07),ofont08,100)
+	Endif
+
+	// Box Desconto / Abatimento
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"2(-) Desconto/abatimento",ofont08,100)
+	//If _aTitulos[_nCont][17] > 0
+	If _aTitulos[_nCont][23] > 0
+		oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+2000,transform(_aTitulos[_nCont][23] ,"@E 999,999,999.99"),ofont08B,100)
+		//oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+2000,transform(_aTitulos[_nCont][17] ,"@E 999,999,999.99"),ofont08B,100)
+	EndIf
+	//oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0010,"-Pague este título nas Agências Bradesco (ou através do Sistema Integrado de Compensação)",ofont09B,100)
+
+	// Box Outras deducoes
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"3(-) Outras deduções",ofont08,100)
+	//oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0010,"-Após o 3o dia útil do venvimento, pagável somente na Agência Depositária Oficial, se houver indicação no",ofont09,100)
+
+	// Box Mora / Multa
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"4(+) Mora/Multa",ofont08,100)
+	//oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0010,"-'Local de Pagamento' desta papeleta e desde que não haja instruções contrárias do Cedente no espaço acima",ofont09,100)
+
+	// Box Outros acrescimos
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"5(+) Outros Acréscimos",ofont08,100)
+
+	// Box Valor cobrado
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"6(=) Valor cobrado",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+2000,transform(_aTitulos[_nCont][3],"@E 999,999,999.99"),ofont08B,100)
+
+	// Box Sacado
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin)+_nEspLin,_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Sacado:",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0150,_aTitulos[_nCont][09],ofont08,100) // Nome Sacado
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1400,Transform(_aTitulos[_nCont][14],"@R 99.999.999/9999-99"),ofont08,100) // CNPJ Sacado
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+0030,_nPosVer+0150,_aTitulos[_nCont][10],ofont08,100) // End. Sacado
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+0060,_nPosVer+0150,Transform(_aTitulos[_nCont][13],"@R 99999-999"),ofont08,100) // CEP Sacado
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+0060,_nPosVer+0550,_aTitulos[_nCont][11],ofont08,100) // Cidade Sacado
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+0060,_nPosVer+1000,_aTitulos[_nCont][12],ofont08,100) // Estado Sacado
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+0120,_nPosVer+0010,"Beneficiário final:",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+0170,_nPosVer+1750,"Autenticação Mecânica",ofont08,100)
+
+	// Ficha de compensacao
+	_nLinha  += 4
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,Replicate("-",160),ofont12,100)
+	// Linha Digitavel
+	_nLinha  += 1
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+25,_nTxtBox+0140,"Bradesco",ofont14B,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nTxtBox+0366,"|237-2|",ofont22B,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+0010,_nTxtBox+0700,_clinha,oFont14,100)
+
+	// Box Local de Pagto
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer    ,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1650)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox    ,_nPosVer+0010,"Local de Pagamento",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox    ,_nPosVer+0275,"BANCO BRADESCO S.A.",ofont09B,150)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+33 ,_nPosVer+0275,"PAGAR PREFERENCIALMENTE EM QUALQUER AGENCIA BRADESCO.",ofont09B,150)
+
+	// Box Vencimento
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"Vencimento",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+2060,StrZero(Day(_aTitulos[_nCont][02]),2)+"/"+StrZero(Month(_aTitulos[_nCont][02]),2)+"/"+StrZero(Year(_aTitulos[_nCont][02]),4),ofont08B,100)
+
+	// Box Cedente
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1650)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Cedente",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin+30)+_nTxtBox,_nPosVer+0010,_cNomeEmp,ofont08,100)
+
+	// Box Agencia/Codigo Cedente
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"Agência/Código Cedente",ofont08,100)
+	//oprn:say(_nPosHor+((_nLinha-1)*_nEspLin+30)+_nTxtBox,_nPosVer+1940,transform(_aTitulos[_nCont][05],"@R 9999-9")+"/"+transform(_aTitulos[_nCont][06],"@R 9999999"),ofont08B,100)
+	If CNUMEMP == "1001" .OR. CNUMEMP == "0101" .OR. CNUMEMP == "0201" .OR. CNUMEMP == "0601" .OR. CNUMEMP == "9801".OR. CNUMEMP == "1401"
+		oprn:say(_nPosHor+((_nLinha-1)*_nEspLin+30)+_nTxtBox,_nPosVer+1940,transform(_aTitulos[_nCont][05],"@R 9999")+"-9/00"+_aTitulos[_nCont][16],ofont08B,100)
+	Else
+		oprn:say(_nPosHor+((_nLinha-1)*_nEspLin+30)+_nTxtBox,_nPosVer+1940,transform(_aTitulos[_nCont][05],"@R 9999")+"/"+_aTitulos[_nCont][16],ofont08B,100)
+	Endif         
+
+
+
+
+	// Box Data do documento
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0420)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Data do documento",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0100,_aTitulos[_nCont][08],ofont08,100)
+
+	// Box Numero do Documento
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0420,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0790)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0430,"N° do documento",ofont08,100)
+
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0530,_aTitulos[_nCont][21],ofont08,100) // NF
+	//oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0530,_aTitulos[_nCont][01],ofont08,100) // BILHETE
+
+	// Box Especie Doc
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0790,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1050)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0800,"Espécie Doc",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0900,"DM",ofont08,100)
+
+
+	// Box Aceite
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1050,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1170)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1060,"Aceite",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+1080,"Não",ofont08,100)
+
+
+	// Box Data do Processamento
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1170,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1650)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1180,"Data do Processamento",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+1280,_aTitulos[_nCont][15],ofont08,100)
+
+	// Box Cart./nosso numero
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"Cart./nosso número",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+1960,_aTitulos[_nCont][07]+"/"+transform(_aTitulos[_nCont][04],"@R 99999999999-X"),ofont08B,100)
+
+	// Box Uso do Banco
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0300)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Uso do Banco",ofont08,100)
+	//oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0050,"08650",ofont08,100)
+
+	// Box Cip
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0300,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0420)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0310,"Cip",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0315,"000",ofont08,100)
+
+	// Box Carteira
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0420,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0552)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0430,"Carteira",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0480,_aTitulos[_nCont][07],ofont08,100)
+
+	// Box Espécie Moeda
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0552,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0790)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0562,"Espécie moeda",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0662,"R$",ofont08,100)
+
+	// Box Quantidade
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0790,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1170)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0800,"Quantidade",ofont08,100)
+
+	// Box Valor
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1170,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1650)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1180,"Valor",ofont08,100)
+
+	// Box Valor do documento
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"1(=) Valor do documento",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+2000,transform(_aTitulos[_nCont][22],"@E 999,999,999.99"),ofont08B,100)
+	//oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+2000,transform(_aTitulos[_nCont][03],"@E 999,999,999.99"),ofont08B,100)
+
+	_nLinha  += 1
+
+	// Box Desconto / Abatimento
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"2(-) Desconto/abatimento",ofont08,100)
+	//If _aTitulos[_nCont][17] > 0
+	If _aTitulos[_nCont][23] > 0
+		//oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+2000,transform(_aTitulos[_nCont][17] ,"@E 999,999,999.99"),ofont08B,100)
+		oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+2000,transform(_aTitulos[_nCont][23] ,"@E 999,999,999.99"),ofont08B,100)
+	EndiF
+
+	// Box Instrucoes
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin)+4*_nEspLin,_nPosVer+1650)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+20,_nPosVer+0010,"Instruções de responsabilidade do cedente.",ofont09B,100)
+
+	// Box Outras deducoes
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"3(-) Outras deduções",ofont08,100)
+
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"*** Valores Expressos em R$ ***",ofont09B,100)
+
+	// Box Mora / Multa
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"4(+) Mora/Multa",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0010,"Apos o Vencimento Mora dia R$ "+transform(_aTitulos[_nCont][03]* _JurosBras ,"@E 999,999,999.99"),ofont09B,100)
+	
+	
+	//oprn:say(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0010,"Apos o Vencimento Mora dia R$ "+transform(_aTitulos[_nCont][03]*0.003333,"@E 999,999,999.99"),ofont08,100)
+	// Box Outros acrescimos
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"5(+) Outros Acréscimos",ofont08,100)
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"APOS O VENCIMENTO, MULTA DE 2,00 %",ofont09B,100)
+	//oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+10,_nPosVer+0010,"APOS O VENCIMENTO, MULTA DE 2,00 %",ofont09B,100)
+
+	If !Empty(MV_PAR07)
+		oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+50,_nPosVer+0010,"Referente Notas "+Trim(mv_par07),ofont08,100)
+	Endif
+	oprn:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+90,_nPosVer+0010,"Referente Bilhete "+ AllTrim(_aTitulos[_nCont,1]),ofont08,100)
+
+	// Box Valor cobrado
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1650,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1660,"6(=) Valor cobrado",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+2000,transform(_aTitulos[_nCont][3],"@E 999,999,999.99"),ofont08B,100)
+
+	// Box Sacado
+	_nLinha  += 1
+	oPrn:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin)+_nEspLin,_nPosVer+2230)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Sacado:",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0150,_aTitulos[_nCont][09],ofont08,100) // Nome Sacado
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1400,Transform(_aTitulos[_nCont][14],"@R 99.999.999/9999-99"),ofont08,100) // CNPJ Sacado
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+0030,_nPosVer+0150,_aTitulos[_nCont][10],ofont08,100) // End. Sacado
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+0060,_nPosVer+0150,Transform(_aTitulos[_nCont][13],"@R 99999-999"),ofont08,100) // CEP Sacado
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+0060,_nPosVer+0550,_aTitulos[_nCont][11],ofont08,100) // Cidade Sacado
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+0060,_nPosVer+1000,_aTitulos[_nCont][12],ofont08,100) // Estado Sacado
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+0120,_nPosVer+0010,"Beneficiário final:",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+0170,_nPosVer+1530,"Autenticação Mecânica",ofont08,100)
+	oPrn:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+0170,_nPosVer+1860,"Ficha de Compensação",ofont09,100)
+
+	// Imprime Logotipo do Banco
+	oPrn:Saybitmap(0015,0060,"BRADESCO4.BMP",0080,0070)
+
+	// Imprime Logotipo do Banco
+	oPrn:Saybitmap(0515,0060,"BRADESCO4.BMP",0080,0070)
+
+	// Imprime Logotipo do Banco
+	oPrn:Saybitmap(0690,1850,"BRADESCO4.BMP",0180,0180)
+
+	// Imprime Logotipo do Banco
+	oPrn:Saybitmap(2195,0060,"BRADESCO4.BMP",0080,0070)
+
+	// Imprime codigo de barras
+	//MSBAR("INT25",14.35,0.7,_cbarra,oprn,.F.,,.T.,0.0135,0.65,NIL,NIL,NIL,.F.)
+	//MSBAR("INT25",13.55,0.7,_cbarra,oprn,.F.,,.T.,0.0135,0.65,NIL,NIL,NIL,.F.)
+	MSBAR3("INT25" ,27.80,0.7,_cbarra     ,oprn  ,.F.      ,Nil  ,.T.    ,0.025      ,1.25   ,   Nil   ,   Nil   ,   "A"  ,.F.)
+	//        TP      LIN COL  CODIGO      OBJ     DIGITO   Cor    HORIZ   TAMANHO    ALTURA
+
+
+
+	//MSBAR3("INT25",27.0 ,  1,_cbarra     ,oprn  ,.F.,Nil,.T.,0.025,2.5 ,Nil,Nil,"A",.F.)
+	// MSBAR3("INT25",13.85,  1,_cbarra     ,oprn  ,.F.,Nil,.T.,0.025,1.5,Nil,Nil,"A",.F.)
+	//MSBAR3("INT25",27.0 ,  1,_cbarra     ,oprn  ,.F.,Nil,.T.,0.025,2.5 ,Nil,Nil,"A",.F.)
+
+Return (.T.)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºFuncao    ³ CISTF07B º Autor ³                    º Data ³  11/05/03   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDescricao ³ Monta codigo de barras que sera impresso.                  º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³                                                            º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function RFINB01B()
+
+	Local _nAgen   := ""
+	Local _nCntCor := ""
+	Local _nI      := 0
+
+	/*
+	- Posicoes fixas padrao Banco Central
+	Posicao  Tam       Descricao
+	01 a 03   03   Codigo de Compensacao do Banco (237)
+	04 a 04   01   Codigo da Moeda (Real => 9, Outras => 0)
+	05 a 05   01   Digito verificador do codigo de barras
+	06 a 19   14   Valor Nominal do Documento sem ponto
+
+	- Campo Livre Padrao Bradesco
+	Posicao  Tam       Descricao
+	20 a 23   03   Agencia Cedente sem digito verificador
+	24 a 25   02   Carteira
+	25 A 36   11   Nosso Numero sem digito verificador
+	37 A 43   07   Conta Cedente sem digiro verificador
+	44 A 44   01   Zero
+	*/
+
+	// Monta numero da Agencia sem dv e com 4 caracteres
+	// Retira separador de digito se houver
+	For _nI := 1 To Len(_aTitulos[_nCont][05])
+		If Subs(_aTitulos[_nCont][05],_nI,1) $ "0/1/2/3/4/5/6/7/8/9/"
+			_nAgen += Subs(_aTitulos[_nCont][05],_nI,1)
+		Endif
+	Next _nI
+	// retira o digito verificador
+	//_nAgen := StrZero(Val(Subs(Alltrim(_nAgen),1,Len(_nAgen)-1)),4)
+
+	// Monta numero da Conta Corrente sem dv e com 7 caracteres
+	// Retira separador de digito se houver
+	For _nI := 1 To Len(_aTitulos[_nCont][16])
+		If Subs(_aTitulos[_nCont][16],_nI,1) $ "0/1/2/3/4/5/6/7/8/9/"
+			_nCntCor += Subs(_aTitulos[_nCont][16],_nI,1)
+		Endif
+	Next _nI
+	// retira o digito verificador
+	_nCntCor := StrZero(Val(Subs(Alltrim(_nCntCor),1,Len(_nCntCor)-1)),7)
+
+	_cCampo := ""
+	// Pos 01 a 03 - Identificacao do Banco
+	_cCampo += "237"
+	// Pos 04 a 04 - Moeda
+	_cCampo += "9"
+	// Pos 06 a 09 - Fator de vencimento
+	_cCampo += Str((_aTitulos[_nCont][02] - Fator),4)
+	// Pos 10 a 19 - Valor
+	//_cCampo += StrZero(Int(_aTitulos[_nCont][03]*100),10)
+	_cCampo += StrZero((_aTitulos[_nCont][03]*100),10)
+	// Pos 20 a 23 - Agencia
+	_cCampo += _nAgen
+	// Pos 24 a 25 - Carteira
+	_cCampo += _aTitulos[_nCont][07]
+	// Pos 26 a 36 - Nosso Numero
+	_cCampo += Subs(_aTitulos[_nCont][04],1,11)
+	// Pos 37 a 43 - Conta do Cedente
+	_cCampo += _nCntCor
+	// Pos 44 a 44 - Zero
+	_cCampo += "0"
+	_cDigitbar := RFINB01C()
+
+	// Monta codigo de barras com digito verificador
+	_cBarra := Subs(_cCampo,1,4)+_cDigitbar+Subs(_cCampo,5,43)
+
+Return()
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºFuncao    ³ CISTF07C º Autor ³                    º Data ³  11/05/03   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDescricao ³ Calculo do Digito Verificador Codigo de Barras - MOD(11)   º±±
+±±º          ³ Pesos (2 a 9)                                              º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³                                                            º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+
+Static Function RFINB01C()
+
+	Local _nCnt   := 0
+	Local _nPeso  := 2
+	Local _nJ     := 1
+	Local _nResto := 0
+
+	For _nJ := Len(_cCampo) To 1 Step -1
+		_nCnt  := _nCnt + Val(SUBSTR(_cCampo,_nJ,1))*_nPeso
+		_nPeso :=_nPeso+1
+		if _nPeso > 9
+			_nPeso := 2
+		endif
+	Next _nJ
+
+	_nResto:=(_ncnt%11)
+
+	_nResto:=11 - _nResto
+
+	if _nResto == 0 .or. _nResto==1 .or. _nResto > 9
+		_nDigbar:='1'
+	else
+		_nDigbar:=Str(_nResto,1)
+	endif
+
+Return(_nDigbar)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºFuncao    ³ CISTF07D º Autor ³                    º Data ³  11/05/03   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDescricao ³ Monta da Linha Digitavel                                   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³                                                            º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static FUNCTION RFINB01D()
+
+	Local _nI   := 1
+	Local _nAux := 0
+	_cLinha     := ""
+	_nDigito    := 0
+	_cCampo     := ""
+
+	/*
+	Primeiro Campo
+	Posicao  Tam       Descricao
+	01 a 03   03   Codigo de Compensacao do Banco (237)
+	04 a 04   01   Codigo da Moeda (Real => 9, Outras => 0)
+	05 a 09   05   Pos 1 a 5 do campo Livre(Pos 1 a 4 Dig Agencia + Pos 1 Dig Carteira)
+	10 a 10   01   Digito Auto Correcao (DAC) do primeiro campo
+
+	Segundo Campo
+	11 a 20   10   Pos 6 a 15 do campo Livre(Pos 2 Dig Carteira + Pos 1 a 9 Nosso Num)
+	21 a 21   01   Digito Auto Correcao (DAC) do segundo campo
+
+	Terceiro Campo
+	22 a 31   10   Pos 16 a 25 do campo Livre(Pos 10 a 11 Nosso Num + Pos 1 a 8 Conta Corrente + "0")
+	32 a 32   01   Digito Auto Correcao (DAC) do terceiro campo
+
+	Quarto Campo
+	33 a 33   01   Digito Verificador do codigo de barras
+
+	Quinto Campo
+	34 a 37   04   Fator de Vencimento
+	38 a 47   10   Valor
+	*/
+
+	// Calculo do Primeiro Campo
+	_cCampo := ""
+	_cCampo := Subs(_cBarra,1,4)+Subs(_cBarra,20,5)
+
+	// Calculo do digito do Primeiro Campo
+	RFINB01E(2)
+	_cLinha += Subs(_cCampo,1,5)+"."+Subs(_cCampo,6,4)+Alltrim(Str(_nDigito))
+
+	// Insere espaco
+	_cLinha += " "
+
+	// Calculo do Segundo Campo
+	_cCampo := ""
+	_cCampo := Subs(_cBarra,25,10)
+	// Calculo do digito do Segundo Campo
+	RFINB01E(1)
+	_cLinha += Subs(_cCampo,1,5)+"."+Subs(_cCampo,6,5)+Alltrim(Str(_nDigito))
+
+	// Insere espaco
+	_cLinha += " "
+
+	// Calculo do Terceiro Campo
+	_cCampo := ""
+	_cCampo := Subs(_cBarra,35,10)
+	// Calculo do digito do Terceiro Campo
+	RFINB01E(1)
+	_cLinha += Subs(_cCampo,1,5)+"."+Subs(_cCampo,6,5)+Alltrim(Str(_nDigito))
+
+	// Insere espaco
+	_cLinha += " "
+
+	// Calculo do Quarto Campo
+	_cCampo := ""
+	_cCampo := Subs(_cBarra,5,1)
+	_cLinha += _cCampo
+
+	// Insere espaco
+	_cLinha += " "
+
+	// Calculo do Quinto Campo
+	_cCampo := ""
+	_cCampo := Subs(_cBarra,6,4)+Subs(_cBarra,10,10)
+	_cLinha += _cCampo
+
+
+Return(.T.)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºFuncao    ³ CISTF07E º Autor ³                    º Data ³  11/05/03   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDescricao ³ Calculo do Digito Verificador da Linha Digitavel - Mod(10) º±±
+±±º          ³ Pesos (1 e 2)                                              º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³                                                            º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+
+Static Function RFINB01E (_nCnt)
+
+	Local _nI   := 1
+	Local _nAux := 0
+	Local _nInt := 0
+	_nDigito    := 0
+
+	For _nI := 1 to Len(_cCampo)
+
+		_nAux := Val(Substr(_cCampo,_nI,1)) * _nCnt
+		If _nAux >= 10
+			_nAux:= (Val(Substr(Str(_nAux,2),1,1))+Val(Substr(Str(_nAux,2),2,1)))
+		Endif
+
+		_nCnt += 1
+		If _nCnt > 2
+			_nCnt := 1
+		Endif
+		_nDigito += _nAux
+
+	Next _nI
+
+	If (_nDigito%10) > 0
+		_nInt    := Int(_nDigito/10) + 1
+	Else
+		_nInt    := Int(_nDigito/10)
+	Endif
+
+	_nInt    := _nInt * 10
+	_nDigito := _nInt - _nDigito
+
+Return()
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Fun‡…o    ³ NossoNum ³ Autor ³ Paulo Boschetti       ³ Data ³ 05/11/93 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ Retorna digito de controle                                 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Sintaxe   ³ 		                                                     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³ Uso      ³ Generico                                                   ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function FNossoNum( )
+
+	Local cNumero := ""
+	Local _cCart  := ""
+	Local _nTot   := 0
+	Local _nDiv   := 0
+	Local nTam := 11 //TamSx3("EE_FAXATU")[1]
+
+	// Enquanto nao conseguir criar o semaforo, indica que outro usuario
+	// esta tentando gerar o nosso numero.
+	cNumero := StrZero(Val(SEE->EE_FAXATU)+1,nTam)
+	RecLock("SEE",.F.)
+		Replace SEE->EE_FAXATU With StrZero(Val(SubStr(cNumero,1,nTam)),nTam)
+	SEE->( MsUnlock() )
+
+	cLog100 := "NOSSO NUMERO " + cNumero
+	cLog200 := "SEE KEY " + SEE->EE_FILIAL + "/" + SEE->EE_CODIGO + "/" + SEE->EE_AGENCIA + "/" + SEE->EE_CONTA + "/" + SEE->EE_SUBCTA
+	u_GrvLogZLG( msDate(), TIME(), cUserName, cLog200, "BOLETO", "RFINB01", cLog100, ComputerName(), LogUserName() )
+
+	// FWNM - 15/06/2023 - Consistência para garantir que não haja duplicação do NOSSO NÚMERO
+	nCount := 0
+	nTtLoop := 99
+	Do While nCount <= nTtLoop
+
+		nCount++
+
+		If Select("Work") > 0
+			Work->( dbCloseArea() )
+		EndIf
+
+		cQuery := " SELECT TOP 1 E1_NUMBCO
+		cQuery += " FROM " + RetSqlName("SE1") + " (NOLOCK)
+		cQuery += " WHERE E1_NUMBCO='"+cNumero+"' 
+		cQuery += " AND E1_PORTADO='"+SEE->EE_CODIGO+"' 
+		cQuery += " AND D_E_L_E_T_=''
+
+		tcQuery cQuery New Alias "Work"
+
+		Work->( dbGoTop() )
+		If Work->( !EOF() )
+
+			cNumero := StrZero(Val(SEE->EE_FAXATU)+1,nTam)
+
+			RecLock("SEE",.F.)
+				Replace SEE->EE_FAXATU With StrZero(Val(SubStr(cNumero,1,nTam)),nTam)
+			SEE->( MsUnlock() )
+
+			cLog100 := "NOSSO NUMERO ENCONTRADO NA SE1 " + cNumero
+			cLog200 := "SEE KEY " + SEE->EE_FILIAL + "/" + SEE->EE_CODIGO + "/" + SEE->EE_AGENCIA + "/" + SEE->EE_CONTA + "/" + SEE->EE_SUBCTA
+			u_GrvLogZLG( msDate(), TIME(), cUserName, cLog200, "BOLETO", "RFINB01", cLog100, ComputerName(), LogUserName() )
+
+			Loop
+
+		Else
+			Exit
+		EndIf
+
+	EndDo
+
+	If Select("Work") > 0
+		Work->( dbCloseArea() )
+	EndIf
+	//
+
+	cLog100 := "NOSSO NUMERO GRAVADO/UTILIZADO " + cNumero
+	cLog200 := "SEE KEY " + SEE->EE_FILIAL + "/" + SEE->EE_CODIGO + "/" + SEE->EE_AGENCIA + "/" + SEE->EE_CONTA + "/" + SEE->EE_SUBCTA
+	u_GrvLogZLG( msDate(), TIME(), cUserName, cLog200, "BOLETO", "RFINB01", cLog100, ComputerName(), LogUserName() )
+
+	_cCart  := SubStr(Alltrim(SEE->EE_SUBCTA),1,2) // "09" //_aTitulos[_nCont][07]            
+
+	//While !MayIUseCode( SEE->(EE_FILIAL+EE_CODIGO+EE_AGENCIA+EE_CONTA+EE_SUBCTA))  //verifica se esta na memoria, sendo usado
+	//	cNumero := Soma1(cNumero)										// busca o proximo numero disponivel 
+	//EndDo
+
+	_nTot := 0   
+	_aMutpli := {2,7,6,5,4,3,2,7,6,5,4,3,2}
+	_cTotLen := _cCart+cNumero
+	For _nx := 1 To 13
+		_nTot += Round( Val(SubStr(_cTotLen,_nx,1)) * _aMutpli[_nx],2)
+	Next         
+
+	_nDiv1 := Mod(_nTot,11)
+	_nDiv2 := 11 - _nDiv1
+	If _nDiv2 == 11
+		cNumero := cNumero+"0"
+	ElseIf _nDiv2 == 10
+		cNumero := cNumero+"P"
+	Else
+		cNumero := cNumero+StrZero(_nDiv2,1)
+	Endif   
+
+	If Empty(SE1->E1_NUMBCO)
+
+		RecLock("SE1",.F.)
+			Replace SE1->E1_PORTADO With SEE->EE_CODIGO 
+			Replace SE1->E1_NUMBCO With cNumero
+		SE1->( MsUnlock( ) )
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//ATUALIZA NO BILHETE A DATA DA EFETIVACAO DO BILHETE
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		_cAliasBco := Alias()
+		dbSelectArea("SZ4")
+		dbSetOrder(1)
+		dbGotop()
+		If dbSeek( xFilial("SZ4") + SE1->E1_NUM)
+			If  ValType(SZ4->Z4_NUMBCO) != "U"	.And. RecLock("SZ4",.F.)
+				If  ValType(SZ4->Z4_IDCNAB) != "U"	
+					SZ4->Z4_IDCNAB := SE1->E1_IDCNAB
+				Endif	
+				SZ4->Z4_NUMBCO := cNumero
+				msunlock()
+			Endif         
+		Endif
+
+		dbSelectArea(_cAliasBco)	
+
+		/*
+		RecLock("SEE",.F.)
+			Replace SEE->EE_FAXATU With StrZero(Val(SubStr(cNumero,1,11)),11)
+		SEE->( MsUnlock() )
+		*/
+	EndIf	                                      
+
+	// GRAVA SZA PARA AJUSTAR NA ALTERACAO
+	_cAliasBco := Alias()
+	dbSelectArea("SZA")
+	dbGoTop()
+	dbSetOrder(1)
+	If dbSeek(xFilial("SZA")+"R"+SE1->E1_PREFIXO+SE1->E1_NUM+SE1->E1_CLIENTE+SE1->E1_LOJA+SE1->E1_PARCELA)
+		Reclock("SZA",.F.)
+			SZA->ZA_DECRESC := SE1->E1_DECRESC 
+			SZA->ZA_NUMBCO  := SE1->E1_NUMBCO 
+			SZA->ZA_IDCNAB  := SE1->E1_IDCNAB 
+		SZA->( msunlock() )
+	Endif
+	dbSelectArea(_cAliasBco)	
+
+	Leave1Code(SEE->(EE_FILIAL+EE_CODIGO+EE_AGENCIA+EE_CONTA+EE_SUBCTA))
+	DbSelectArea("SE1")
+
+Return(SE1->E1_NUMBCO)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºFun‡„o    ³VALIDPERG º Autor ³ AP5 IDE            º Data ³  22/02/02   º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDescri‡„o ³ Verifica a existencia das perguntas criando-as caso seja   º±±
+±±º          ³ necessario (caso nao existam).                             º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ Programa principal                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+/*
+Static Function ValidPerg
+
+	Local _sAlias := Alias()
+	Local aRegs := {}
+	Local i,j
+
+	dbselectarea("SX1")
+	dbsetorder(1)          
+	dbGoTop()
+	cPerg := PADR(cPerg,LEN(SX1->X1_GRUPO))
+
+	// Grupo/Ordem/Pergunta/Variavel/Tipo/Tamanho/Decimal/Presel/GSC/Valid/Var01/Def01/Cnt01/Var02/Def02/Cnt02/Var03/Def03/Cnt03/Var04/Def04/Cnt04/Var05/Def05/Cnt05
+	aAdd(aRegs,{cPerg,"01","Bilhete de         ?","","","mv_ch1","C",06,0,0,"G","","mv_par01","","","","","","","","","","","","","","","","","","","","","","","","","SZ4"})
+	aAdd(aRegs,{cPerg,"02","Bilhete Ate        ?","","","mv_ch2","C",06,0,0,"G","","mv_par02","","","","","","","","","","","","","","","","","","","","","","","","","SZ4"})
+	aAdd(aRegs,{cPerg,"03","Serie              ?","","","mv_ch3","C",03,0,0,"G","","mv_par03","","","","","","","","","","","","","","","","","","","","","","","","",""})
+	aAdd(aRegs,{cPerg,"04","Banco              ?","","","mv_ch4","C",03,0,0,"G","","mv_par04","","","","","","","","","","","","","","","","","","","","","","","","","SA6"})
+	aAdd(aRegs,{cPerg,"05","Agencia            ?","","","mv_ch5","C",05,0,0,"G","","mv_par05","","","","","","","","","","","","","","","","","","","","","","","","",""})
+	aAdd(aRegs,{cPerg,"06","Conta              ?","","","mv_ch6","C",10,0,0,"G","","mv_par06","","","","","","","","","","","","","","","","","","","","","","","","",""})
+	aAdd(aRegs,{cPerg,"07","Notas              ?","","","mv_ch7","C",60,0,0,"G","","mv_par07","","","","","","","","","","","","","","","","","","","","","","","","",""})
+	aAdd(aRegs,{cPerg,"08","Desconto           ?","","","mv_ch8","N",12,2,0,"G","","mv_par08","","","","","","","","","","","","","","","","","","","","","","","","",""})
+	aAdd(aRegs,{cPerg,"09","Carteira(06 OU 09) ?","","","mv_ch9","C",02,2,0,"G","","mv_par09","","","","","","","","","","","","","","","","","","","","","","","","",""})
+
+	For i:=1 to Len(aRegs)
+		If !dbSeek(cPerg+aRegs[i,2])
+			RecLock("SX1",.T.)
+			For j:=1 to FCount()
+				If j <= Len(aRegs[i])
+					FieldPut(j,aRegs[i,j])
+				Endif
+			Next
+			MsUnlock()
+		Endif
+		If aRegs[i,2] == "08"
+			RecLock("SX1",.T.)
+			SX1->X1_CNT01 := ""
+			MsUnlock()
+		Endif
+	Next                           
+
+
+	dbSelectArea(_sAlias)
+Return
+*/
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³ENVIAEMAILºAutor  ³LEANDRO
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Exp1 - Titulo do email                                      º±±
+±±º          ³Exp2 - destinantarios                                       º±±
+±±º          ³Exp3 - Destinatarios ocultos                               º±±
+±±º          ³Exp4 - Corpo da mensagen                                    º±±
+±±ºDesc.     ³Exp5 - Local do Arquivo                                     º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function EmailCob(_cCampo1)
+
+	Local lResult       := .f.                // Resultado da tentativa de comunicacao com servidor de E-Mail
+	Private cAttachment   := _cFileAttach
+	Private lAutentica    := GetMV("MV_RELAUTH")
+
+	// envia email  
+	cMensagem := MsgEmail()
+	cTitulo  := "Segunda via de Boleto"
+	cDestina := _cCampo1
+
+	cServer   := "pop."+SubStr(GetMV("MV_RELSERV"),6,LEN(GetMV("MV_RELSERV")))
+	cSmtp        := GetMV("MV_RELSERV")
+	cUser     := GetMV("MV_RELACNT")
+	cPassword := GetMV("MV_RELAPSW")
+	nTimeOut  := 30
+	lResult := .T.
+
+	If !MailSmtpOn ( cSmtp, cUser, cPassword, nTimeOut )
+		lResult := .F.    
+		RETURN(lResult)
+	Endif
+	If  lAutentica .And. !MailAuth (cUser, cPassword)
+		lResult := .F.    
+		RETURN(lResult)
+	Endif
+
+	If lResult
+
+		//Verifica se o E-mail necessita de Autenticacao
+		lResult         := .F.                                                         
+		cFrom             := GetMV("MV_RELACNT")
+		aTo               := {}
+		Aadd(aTo,cDestina)
+		aCc                := {}
+		aBcc            := {}
+		//Aadd(aBcc,)
+		cSubject         := cTitulo
+		cBody           := ""  // cMensagem    // MENSAGEM HTML
+
+		//enviar todas as pafiunas quando salvo jpeg
+		aFiles            := {}  //
+		// Aadd(aFiles,cAttachment)
+		For _NZ := 1 To Len(_aFileAttach)
+			Aadd(aFiles,_aFileAttach[_nz,1])
+		Next
+
+		lText            := .F. // TEXTO
+		If MailSend ( cFrom, aTo,aCc,aBcc, cSubject, cBody, aFiles, lText )
+			lResult := .T.
+		Endif
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Finaliza conexao com o servidor de E-Mail ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+	EndIf
+Return(lResult)
+
+/**************************************************************************/
+/**************************************************************************/
+/**************************************************************************/
+/**************************************************************************/
+/**************************************************************************/
+/**************************************************************************/
+Static Function MsgEmail()
+
+	#IFNDEF CRLF
+	#DEFINE CRLF ( chr(13)+chr(10) )
+	#ENDIF
+
+	Local cMens := ""
+
+	cMens+= '  <tr>'+CRLF
+	cMens+= '    <td>   </td>'+CRLF
+	cMens+= '    <td> Prezado(a) Cliente <b>'+SA1->A1_NOME+'  </b></td>'+CRLF
+	/*//BLOCO PARA MENSAGEM PARA O CLIENTE
+	cMens+= '    <td> <b><FONT FACE="ARIAL" COLOR="RED" SIZE="4">ATENÇÃO</b></FONT></td>'+CRLF
+	cMens+= '  <tr>'+CRLF
+	cMens+= '  <tr>'+CRLF
+	cMens+= '  <td>Pedimos a gentileza de <b>desconsiderar</b> o e-mail enviado anteriormente, pois foi enviado o Boleto do mës errado com vencimento de Outubro/2012.</td>'+CRLF
+	cMens+= '  <td><b>Estamos REENVIANDO o boleto correto com vencimento para Setembro/2012.</b></td>'+CRLF
+	cMens+= '  <tr>'+CRLF
+	cMens+= '  <td>Desde já agradecemos sua atenção e compreensão.</td>'+CRLF
+	cMens+= '  <tr>'+CRLF
+	cMens+= '  <td>Qualquer dúvida favor entrar em contato com:</td>'+CRLF
+	cMens+= '  <tr>'+CRLF
+	cMens+= '  <tr>'+CRLF
+	cMens+= '  <td><b>Mércia / Gláucia/ Cristiane Gabrielle ou Aline</b></td>'+CRLF
+	cMens+= '  <tr>'+CRLF
+	cMens+= '  <tr>'+CRLF
+	cMens+= '  <tr>'+CRLF
+	cMens+= '  <td><b>Abaixo, dados do Boleto correto</b></td>'+CRLF
+	*/
+	cMens+= '  <tr>'+CRLF
+	cMens+= '  <tr>'+CRLF
+	cMens+= '    <td>Conforme Solicitado, Segue BOLETO.  </b></td>'+CRLF
+	cMens+= '    <td>   </td>'+CRLF
+	cMens+= '    <td>   </td>'+CRLF
+	cMens+= '    <td>   </td>'+CRLF
+	cMens+= '    <td>   </td>'+CRLF
+	cMens+= '    <td>   </td>'+CRLF
+	cMens+= '    <td> Em caso de duvidas sobre as informacoes contidas nessa ficha de compensacao, entre em contato conosco.  </td>'+CRLF
+	cMens+= '    <td>   </td>'+CRLF
+	cMens+= '    <td>   </td>'+CRLF
+	cMens+= '    <td> Atenciosamente  </td>'+CRLF
+	cMens+= '    <td>   </td>'+CRLF
+	cMens+= '    <td> FORTFRUIT  </td>'+CRLF
+	cMens+= '</div>'+CRLF
+	cMens+= '</table>'+CRLF
+	cMens+= '</body>'+CRLF
+	cMens+= '</html>'+CRLF       
+
+Return(cMens)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³  MontaRel³ Autor ³ Microsiga             ³ Data ³ 13/10/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ IMPRESSAO DO BOLETO LASER DO SANTANDER COM CODIGO DE BARRAS     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Especifico para Clientes Microsiga                         ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function ImpSantander(aTitulos)
+
+	LOCAL oPrint
+	LOCAL nX := 0
+	LOCAL aDadosEmp    := {	SM0->M0_NOMECOM                                    								  ,; //[1]Nome da Empresa
+	SM0->M0_ENDCOB                                     						  ,; //[2]Endereço
+	AllTrim(SM0->M0_BAIRCOB)+", "+AllTrim(SM0->M0_CIDCOB)+", "+SM0->M0_ESTCOB ,; //[3]Complemento
+	"CEP: "+Subs(SM0->M0_CEPCOB,1,5)+"-"+Subs(SM0->M0_CEPCOB,6,3)             ,; //[4]CEP
+	"PABX/FAX: "+SM0->M0_TEL                                                  ,; //[5]Telefones
+	"CNPJ: "+Subs(SM0->M0_CGC,1,2)+"."+Subs(SM0->M0_CGC,3,3)+"."+          	   ; //[6]
+	Subs(SM0->M0_CGC,6,3)+"/"+Subs(SM0->M0_CGC,9,4)+"-"+                       ; //[6]
+	Subs(SM0->M0_CGC,13,2)                                                    ,; //[6]CGC
+	"I.E.: "+Subs(SM0->M0_INSC,1,3)+"."+Subs(SM0->M0_INSC,4,3)+"."+            ; //[7]
+	Subs(SM0->M0_INSC,7,3)+"."+Subs(SM0->M0_INSC,10,3)                         }  //[7]I.E
+
+	LOCAL aDadosTit
+	LOCAL aDadosBanco
+	LOCAL aDatSacado
+	LOCAL aBolText     := {"Sr. Caixa, apos o vencimento cobrar multa de 2% mais juros de 1% ao mes" 	,;   //[1]Mora Diaria
+	"Sujeito a Protesto na Falta de Pagamento Após o 5º dia do Vencimento."}   //[2]Sujeito a Protesto
+
+	LOCAL nI		:= 1
+	LOCAL aCB_RN_NN	:= {}
+	LOCAL nVlrAbat	:= 0
+	Local aBCOLogo  := {}
+	Local cDVNrBanc
+	Local cNrBancario
+	Local cAgeNN
+	Local cCtaNN
+	Local cCarNN
+	Local cNumNN
+	Local cMsg     := "Referente Nota Fiscal Eletronica Nr: "
+	Local cNFEle   := ""    
+	Local cRet     := Space(30)
+
+	DbSelectArea("SEE")
+	DbSetOrder(1)
+	dbSeek(xFilial("SEE")+"033") // +MV_PAR05+MV_PAR06+MV_PAR09 )   
+
+	DbSelectArea("SA6")
+	DbSetOrder(1)
+	dbSeek(xFilial("SA6")+SEE->EE_CODIGO + SEE->EE_AGENCIA + SEE->EE_CONTA) // +MV_PAR05+MV_PAR06+MV_PAR09 )   
+
+
+	oPrint:= TMSPrinter():New( "Boleto Laser" )
+	oPrint:SetPortrait() 	// ou SetLandscape()
+	oPrint:StartPage()   	// Inicia uma nova página
+
+	For nI:=1 To Len(aTitulos) 
+
+		cPrefixo := aTitulos[nI,2]
+		cNum     := aTitulos[nI,3]
+		cParcela := aTitulos[nI,4]
+		cTipo    := aTitulos[nI,5]
+		cCLiente := aTitulos[nI,7]
+		cLoja    := aTitulos[nI,8]
+
+		//Posiciona o SA1 (Cliente)
+		DbSelectArea("SA1")
+		DbSetOrder(1) 
+		DbSeek(xFilial("SA1") + cCliente + cLoja )
+
+		DbSelectArea("SE1")
+		DbSetOrder(1) 
+		If !DbSeek(xFilial("SE1") + cPrefixo + cNum + cParcela + cTipo + cCliente + cLoja)
+			Alert("O Titulo: " + cPrefixo + " " + cNum + " " + cParcela + " nao existe!")
+			Loop
+		Endif
+
+
+		aDadosBanco  := {SA6->A6_COD                        					,;	// [1] Numero do Banco
+		SA6->A6_NOME      	            	                  	,; 	// [2] Nome do Banco
+		SUBSTR(SA6->A6_AGENCIA, 1, 4)                        	,;	// [3] Agência
+		SUBSTR(SA6->A6_NUMCON, 1, 9)							    ,; 	// [4] Conta Corrente 
+		SUBSTR(SA6->A6_NUMCON,10, 1)	   							    ,; 	// [5] Dígito da conta corrente
+		SUBSTR(SEE->EE_SUBCTA,1,3) 										    ,;  // [6] Codigo da Carteira 
+		0											,;	// [7] Tx da Multa       
+		0 										    ,;  // [8] Tx de Mora Diaria 
+		Substr(SEE->EE_CODEMP,2,7)								}   // [9] Codigo do Cedente   ESTAVA ANTES ,1,7)  -> MUDEI PARA ,2,7 
+
+		If Empty(SA1->A1_ENDCOB)
+			aDatSacado   := {AllTrim(SA1->A1_NOME)           ,;      	// [1]Razão Social
+			AllTrim(SA1->A1_COD )+"-"+SA1->A1_LOJA           ,;      	// [2]Código
+			AllTrim(SA1->A1_END )+"-"+AllTrim(SA1->A1_BAIRRO),;      	// [3]Endereço
+			AllTrim(SA1->A1_MUN )                            ,;  		// [4]Cidade
+			SA1->A1_EST                                      ,;    		// [5]Estado
+			SA1->A1_CEP                                      ,;      	// [6]CEP
+			SA1->A1_CGC										 ,;  		// [7]CGC
+			SA1->A1_PESSOA}       										// [8]PESSOA
+		Else
+			aDatSacado   := {AllTrim(SA1->A1_NOME)            	,;   	// [1]Razão Social
+			AllTrim(SA1->A1_COD )+"-"+SA1->A1_LOJA              ,;   	// [2]Código
+			AllTrim(SA1->A1_ENDCOB)+"-"+AllTrim(SA1->A1_BAIRROC),;   	// [3]Endereço
+			AllTrim(SA1->A1_MUNC)	                            ,;   	// [4]Cidade
+			SA1->A1_ESTC	                                    ,;   	// [5]Estado
+			SA1->A1_CEPC                                        ,;   	// [6]CEP
+			SA1->A1_CGC											,;		// [7]CGC
+			SA1->A1_PESSOA}												// [8]PESSOA
+		Endif
+
+		If Empty (SE1->E1_NUMBCO)
+			cNumNN   := Strzero(Val(Alltrim(SEE->EE_FAXATU))+1,12)
+
+			RecLock( "SEE" , .F. )
+			SEE->EE_FAXATU := cNumNN
+			MsUnlock()
+
+			//--- Para o Santander precisa gravar o Nosso Numero com o Digito (Modulo 11)
+			nCalcNrBanc  := Alltrim(cNumNN)
+			cDVNrBanc	:= Modulo11Nn(Alltrim(nCalcNrBanc))
+			cNossoNum 	:= Alltrim(cNumNN) + Alltrim(str(cDVNrBanc))
+
+			RecLock( "SE1" , .F. )
+			SE1->E1_NUMBCO := cNossoNum
+			SE1->E1_PORTADO := SEE->EE_CODIGO
+			MsUnlock()
+		Else
+			cNossoNum := Substr(SE1->E1_NUMBCO,1,12)
+		EndIf   
+
+		// GRAVA SZA PARA AJUSTAR NA ALTERACAO
+		_cAliasBco := Alias()
+		dbSelectArea("SZA")
+		dbGoTop()
+		dbSetOrder(1)
+		If dbSeek(xFilial("SZA")+"R"+SE1->E1_PREFIXO+SE1->E1_NUM+SE1->E1_CLIENTE+SE1->E1_LOJA+SE1->E1_PARCELA)
+			If Reclock("SZA",.F.)
+				SZA->ZA_DECRESC := SE1->E1_DECRESC 
+				SZA->ZA_NUMBCO  := SE1->E1_NUMBCO 
+				SZA->ZA_IDCNAB  := SE1->E1_IDCNAB 
+				msunlock()
+			Endif
+		Endif
+		dbSelectArea(_cAliasBco)	
+
+
+		_cAliasBco := Alias()
+		dbSelectArea("SZ4")
+		dbSetOrder(1)
+		dbGotop()
+		If dbSeek( xFilial("SZ4") + SE1->E1_NUM)
+			If  ValType(SZ4->Z4_NUMBCO) != "U"	.And. RecLock("SZ4",.F.)
+				If  ValType(SZ4->Z4_IDCNAB) != "U"	
+					SZ4->Z4_IDCNAB := SE1->E1_IDCNAB
+				Endif	
+				SZ4->Z4_NUMBCO := cNossoNum 
+				msunlock()
+			Endif         
+		Endif
+		dbSelectArea(_cAliasBco)	
+
+		//--- fim 22.03.07
+
+		cAgeNN		:= SUBSTR(SA6->A6_AGENCIA,1,4)
+		cCtaNN		:= SUBSTR(SA6->A6_NUMCON,1,9)
+		cCarNN		:= Alltrim(SUBSTR(SEE->EE_SUBCTA,1,3)) 
+		cNumNN		:= SUBSTR(SE1->E1_NUMBCO,1,12)
+		nCalcNrBanc := Alltrim(cNumNN)
+		cDVNrBanc	:= Modulo11Nn(Alltrim(nCalcNrBanc))
+		cNrBancario	:= Alltrim(cNumNN) + Alltrim(str(cDVNrBanc))
+
+		nVlrAbat   :=  SE1->E1_DECRESC //SomaAbat(SE1->E1_PREFIXO,SE1->E1_NUM,SE1->E1_PARCELA,"R",1,,SE1->E1_CLIENTE,SE1->E1_LOJA)
+
+		//Monta codigo de barras
+		_nSaldoTit    := Round(SaldoTit(SE1->E1_PREFIXO,SE1->E1_NUM,SE1->E1_PARCELA,SE1->E1_TIPO,SE1->E1_NATUREZ,"R",SE1->E1_CLIENTE,1,dDataBase,,SE1->E1_LOJA,,SE1->E1_TXMOEDA,1),2)
+		aCB_RN_NN    := Ret_cBarra(Subs(aDadosBanco[1],1,3)+"9",aDadosBanco[3],aDadosBanco[4],aDadosBanco[5],cNrBancario,_nSaldoTit,SE1->E1_VENCTO,cCarNN,aDadosBanco[9])
+
+		aDadosTit	:= {AllTrim(SE1->E1_NUM)+AllTrim(SE1->E1_PARCELA)	,;  // [1] Número do título
+		SE1->E1_EMISSAO                      			,;  // [2] Data da emissão do título
+		dDataBase                    					,;  // [3] Data da emissão do boleto
+		SE1->E1_VENCTO                       			,;  // [4] Data do vencimento
+		_nSaldoTit           			,;  // [5] Valor do título
+		SE1->E1_NUMBCO									,;  // [6] Nosso número (Ver fórmula para calculo)
+		SE1->E1_PREFIXO                      			,;  // [7] Prefixo da NF
+		SE1->E1_TIPO	                        		,;	// [8] Tipo do Titulo
+		SE1->E1_DECRESC	                        		}	// [9] Tipo do Titulo
+
+
+		If !Empty(SE1->E1_NFELETR)
+			cRet := cMsg + SE1->E1_NFELETR
+		Endif	
+
+		Impress(oPrint,aDadosEmp,aDadosTit,aDadosBanco,aDatSacado,aBolText,aCB_RN_NN,cNrBancario,cRet,cDVNrBanc)
+		nX := nX + 1
+
+
+		If  ( aTitulos[ni,18] + aTitulos[ni,19]) <> 0 .And. !Empty(aTitulos[ni,20])
+
+
+			//EmailDesc(aTitulos[ni,18],aTitulos[ni,19],aTitulos[ni,20])
+
+		Endif 
+
+
+		IncProc()
+	Next nI
+
+	oPrint:EndPage()     // Finaliza a página
+	oPrint:Preview()     // Visualiza antes de imprimir
+
+
+	_cArq := CRIATRAB(Nil,.F.)
+
+	cFileJpeg := "\TREPORT\"+_cArq
+	_cFileAttach := "\TREPORT\"+_cArq+"_pag1.jpg"
+	oPrint:SaveAllAsJpeg( cFileJpeg, 900, 1300, 140 )       
+	oPrint:End() //ORIGINAL certo
+
+	_aFileAttach := {}
+
+	// ADICIONAR PAGINAS
+	If File("\TREPORT\"+_cArq+"_pag1.jpg")
+		Aadd(_aFileAttach,{("\TREPORT\"+_cArq+"_pag1.jpg")})
+	Endif
+
+	If File("\TREPORT\"+_cArq+"_pag2.jpg")
+		Aadd(_aFileAttach,{("\TREPORT\"+_cArq+"_pag2.jpg")})
+	Endif
+
+	If File("\TREPORT\"+_cArq+"_pag3.jpg")
+		Aadd(_aFileAttach,{("\TREPORT\"+_cArq+"_pag3.jpg")})
+	Endif
+
+	If File("\TREPORT\"+_cArq+"_pag4.jpg")
+		Aadd(_aFileAttach,{("\TREPORT\"+_cArq+"_pag4.jpg")})
+	Endif
+
+	If File("\TREPORT\"+_cArq+"_pag5.jpg")
+		Aadd(_aFileAttach,{("\TREPORT\"+_cArq+"_pag5.jpg")})
+	Endif
+	//
+
+	/*
+	If msgyesno(" Deseja ENviar o Boleto por Email ?")
+
+		Private oCampo1         
+		Private _cCampo1 := Space(40)
+
+		DEFINE MSDIALOG oTela from 000,000 to 150,400 title "Dados Clientes" pixel
+
+		@ 010,005 Say OemToAnsi('Email') PIXEL COLORS CLR_HBLUE OF oTela 
+		@ 025,005 MsGet oCampo1 VAR _cCampo1 F3 "_EM" SIZE 150,08 PIXEL OF oTela 
+
+		@ 045,040 BUTTON "Confirma" OF oTela SIZE 030,015 PIXEL ACTION (_nOpca := 1, Close(oTela))
+		@ 045,090 BUTTON "Cancela"  OF oTela SIZE 030,015 PIXEL ACTION (_nOpca := 2, Close(oTela))
+
+		ACTIVATE MSDIALOG oTela CENTER                                             
+
+		If _nOpca == 1
+			If !EmailCob(_cCampo1)                    
+				Alert(" Erro de Email !!! ")
+			Endif
+		Endif
+
+
+	Endif
+	*/
+
+	ms_flush()
+
+Return nil
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³  Impress ³ Autor ³ Microsiga             ³ Data ³ 13/10/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ IMPRESSAO DO BOLETO LASERDO SANTANDER COM CODIGO DE BARRAS      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Especifico para Clientes Microsiga                         ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßß$$ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function Impress(oPrint,aDadosEmp,aDadosTit,aDadosBanco,aDatSacado,aBolText,aCB_RN_NN,cNrBancario,cRet,cDVNrBanc)
+	LOCAL oFont8
+	LOCAL oFont11c
+	LOCAL oFont10
+	LOCAL oFont13
+	LOCAL oFont14
+	LOCAL oFont16n
+	LOCAL oFont15
+	LOCAL oFont14n
+	LOCAL oFont24
+	LOCAL nI := 0
+
+	//Parametros de TFont.New()
+	//1.Nome da Fonte (Windows)
+	//3.Tamanho em Pixels
+	//5.Bold (T/F)
+	oFont8   := TFont():New("Arial",9,8,.T.,.F.,5,.T.,5,.T.,.F.)
+	oFont11c := TFont():New("Courier New",9,11,.T.,.T.,5,.T.,5,.T.,.F.)
+	oFont10  := TFont():New("Arial",9,10,.T.,.T.,5,.T.,5,.T.,.F.)   
+	oFont13  := TFont():New("Arial",9,13,.T.,.T.,5,.T.,5,.T.,.F.)
+	oFont14  := TFont():New("Arial",9,14,.T.,.T.,5,.T.,5,.T.,.F.)
+	oFont20  := TFont():New("Arial",9,20,.T.,.T.,5,.T.,5,.T.,.F.)
+	oFont21  := TFont():New("Arial",9,21,.T.,.T.,5,.T.,5,.T.,.F.)
+	oFont16n := TFont():New("Arial",9,16,.T.,.F.,5,.T.,5,.T.,.F.)
+	oFont15  := TFont():New("Arial",9,15,.T.,.T.,5,.T.,5,.T.,.F.)
+	oFont15n := TFont():New("Arial",9,15,.T.,.F.,5,.T.,5,.T.,.F.)
+	oFont14n := TFont():New("Arial",9,14,.T.,.F.,5,.T.,5,.T.,.F.)
+	oFont24  := TFont():New("Arial",9,24,.T.,.T.,5,.T.,5,.T.,.F.)
+
+	oPrint:StartPage()   // Inicia uma nova página
+
+	/*****************/
+	/* SEGUNDA PARTE */
+	/*****************/
+
+	nRow2 := 0
+
+
+	/*-------------------------------------------  bloc recibo*/
+	oPrint:SayBitmap(nRow2+0100,100,"SANTANDER.BMP",400,100) //300, 120      // Imprime o Logo do Banco     +0135
+	//oPrint:say(nRow2+0135,0145,"Santander",ofont10,100)
+	oPrint:say(nRow2+0100,0513,"|033-7|",ofont21,100)
+	oPrint:say(nRow2+0125,1800,"Comprovante de Entrega",ofont10,100)
+
+	nRow2 += 200
+
+	oPrint:Line(nRow2,0100,nRow2,2300)
+	oPrint:Line(nRow2+100,0100,nRow2+0100,1185)
+	oPrint:Line(nRow2,0830,nRow2+0100,830)
+	oPrint:Line(nRow2,1185,nRow2+0100,1185)
+	oPrint:say(nRow2+5,0105,"Cedente",ofont8,100)
+	oPrint:say(nRow2+35,0105,TRIM(aDadosEmp[1])	,ofont10,100)
+	cString := Alltrim(aDadosBanco[3]+" / "+aDadosBanco[9])
+	oPrint:say(nRow2+05,0840,"Agência/Código Cedente",ofont8,100)
+	oPrint:Say(nRow2+05,1285,"Motivos de não entrega(para uso da empresa entregadora)",ofont8,100)
+	oPrint:say(nRow2+35,0840,TRIM(cString)	,ofont10,100)
+
+	nRow2 += 50
+
+	oPrint:Say(nRow2,1215,"( )Mudou-se",ofont8,100)
+	oPrint:Say(nRow2,1495,"( )Ausente",ofont8,100)
+	oPrint:Say(nRow2,1825,"( )Não existe n. indicado",ofont8,100)
+
+	nRow2 += 50
+	oPrint:Line(nRow2,0830,nRow2+0200,0830)
+	oPrint:Line(nRow2,1185,nRow2+0200,1185)
+
+	oPrint:Say(nRow2+05,0105,"Sacado",ofont8,100)
+	oPrint:Say(nRow2+05,0840,"Nosso Número",ofont8,100)
+
+	oPrint:Say(nRow2+35,0105,aDatSacado[1],ofont10,100)
+	cString := Alltrim(Substr(aDadosTit[6],1,12) +  ' ' + Alltrim(str(cDVNrBanc)) )
+	oPrint:Say(nRow2+35,0840,cString,ofont10,100)
+
+
+	nRow2 += 50
+	oPrint:Say(nRow2,1215,"( )Recusado",ofont8,100)
+	oPrint:Say(nRow2,1495,"( )Não Procurado",ofont8,100)
+	oPrint:Say(nRow2,1825,"( )Falecido",ofont8,100)
+
+	nRow2 += 50
+	oPrint:Line(nRow2,0100,nRow2,1185)
+	oPrint:Line(nRow2,0415,nRow2+0100,0415)
+
+
+
+	oPrint:Say(nRow2+05,0105,"Vencimento",ofont8,100)
+	cString	:= StrZero(Day(aDadosTit[4]),2) +"/"+ StrZero(Month(aDadosTit[4]),2) +"/"+ Right(Str(Year(aDadosTit[4])),4)
+	oPrint:Say(nRow2+35,0105,cString,ofont10,100)
+
+	oPrint:Say(nRow2+05,0425,"N.Documento",ofont8,100)
+	If !Empty(MV_PAR07)
+		oPrint:Say(nRow2+35,0425,SubStr(TRIM(MV_PAR07),1,40),ofont10,100)
+	Else
+		oPrint:Say(nRow2+35,0425,aDadosTit[7]+aDadosTit[1],ofont10,100)
+	Endif
+
+	oPrint:Say(nRow2+05,0840,"Valor",ofont8,100)
+	cString := Alltrim(Transform(aDadosTit[5],"@E 99,999,999.99"))
+	oPrint:Say(nRow2+35,0840,cString,ofont10,100)
+
+	nRow2 += 50
+
+	oPrint:Say(nRow2,1215,"( )Desconhecido",ofont8,100)
+	oPrint:Say(nRow2,1495,"( )Endereço Insuficiente",ofont8,100)
+	oPrint:Say(nRow2,1825,"( )Outros (anotar no verso)",ofont8,100)
+
+	nRow2 += 50
+	oPrint:Line(nRow2,0100,nRow2,2300)
+	oPrint:Line(nRow2,0595,nRow2+0100,0595)
+	oPrint:Line(nRow2,1185,nRow2+0100,1185)
+	oPrint:Line(nRow2,1740,nRow2+0100,1740)
+
+	oPrint:say(nRow2,0105,"Recebi(emos) o bloqueto",ofont8,100)
+	oPrint:say(nRow2,0605,"Assinatura",ofont8,100)
+
+	oPrint:say(nRow2,1195,"Data",ofont8,100)
+	oPrint:say(nRow2,1750,"Entregador",ofont8,100)
+
+	nRow2 += 100
+	oPrint:Line(nRow2,0100,nRow2,2300)
+	oPrint:Line(nRow2,1800,nRow2+0100,1800)
+
+
+	oPrint:Say(nRow2+05 ,100 ,"Local de Pagamento",oFont8)
+	oPrint:Say(nRow2+35 ,400 ,"Pagar preferencialmente no Grupo Santander",oFont10)
+
+	oPrint:Say(nRow2+05,1810,"Data de Processamento",oFont8)
+	cString	:= StrZero(Day(aDadosTit[3]),2) +"/"+ StrZero(Month(aDadosTit[3]),2) +"/"+ Right(Str(Year(aDadosTit[3])),4)
+	oPrint:Say(nRow2+35,1860,cString,oFont11c)
+
+
+	nRow2 += 100
+	oPrint:Line(nRow2,0100,nRow2,2300)
+
+	nRow2 += 100
+
+	nRow3 := nRow2  // AJUSTE MANUAL DEVIDO PRIMEIRA VERSAO , POIS DEPOIS CRIEI O P´ROTOCOLO
+	nRow2 -= 190  // AJUSTE MANUAL DEVIDO PRIMEIRA VERSAO , POIS DEPOIS CRIEI O P´ROTOCOLO
+
+
+	/*----------------------------------------------------- recibo de pagamento */ 
+
+
+	oPrint:Line (nRow2+0210,100,nRow2+0210,2300)
+	oPrint:Line (nRow2+0210,500,nRow2+0130, 500)
+	oPrint:Line (nRow2+0210,710,nRow2+0130, 710)
+
+	//oPrint:Say  (nRow2+0144,100,aDadosBanco[2],oFont13 )		// [2]Nome do Banco
+	//oPrint:Say  (nRow2+0135,513,aDadosBanco[1]+"-7",oFont21 )	// [1]Numero do Banco
+	oPrint:SayBitmap(nRow2+0100,100,"SANTANDER.BMP",400,100) //300, 120      // Imprime o Logo do Banco     +0135
+	//oPrint:Say  (nRow2+0144,100,aDadosBanco[2],oFont13 )		// [2]Nome do Banco
+	oPrint:Say  (nRow2+0135,513,aDadosBanco[1]+"-7",oFont21 )	// [1]Numero do Banco
+	oPrint:Say  (nRow2+0144,1800,"Recibo do Sacado",oFont10)
+
+
+
+	oPrint:Line (nRow2+0310,100,nRow2+0310,2300 )
+	oPrint:Line (nRow2+0410,100,nRow2+0410,2300 )
+	oPrint:Line (nRow2+0480,100,nRow2+0480,2300 )
+	oPrint:Line (nRow2+0550,100,nRow2+0550,2300 )
+
+	oPrint:Line (nRow2+0410,500,nRow2+0550,500)
+	oPrint:Line (nRow2+0480,750,nRow2+0550,750)
+	oPrint:Line (nRow2+0410,1000,nRow2+0550,1000)
+	oPrint:Line (nRow2+0410,1300,nRow2+0480,1300)
+	oPrint:Line (nRow2+0410,1480,nRow2+0550,1480)
+
+	oPrint:Say  (nRow2+0210,100 ,"Local de Pagamento",oFont8)
+	//oPrint:Say  (nRow2+0225,400 ,"ATÉ O VENCIMENTO, PREFERENCIALMENTE NO BANCO SANTANDER/BANESPA",oFont10)
+	//oPrint:Say  (nRow2+0265,400 ,"APÓS O VENCIMENTO PAGUE SOMENTE NO BANCO SANTANDER/BANESPA",oFont10)
+	//oPrint:Say  (nRow2+0225,400 ,"",oFont10)
+	oPrint:Say  (nRow2+0225,400 ,"Pagar preferencialmente no Grupo Santander",oFont10)
+
+	oPrint:Say  (nRow2+0210,1810,"Vencimento"                                     ,oFont8)
+	cString	:= StrZero(Day(aDadosTit[4]),2) +"/"+ StrZero(Month(aDadosTit[4]),2) +"/"+ Right(Str(Year(aDadosTit[4])),4)
+	nCol := 1810+(460-(len(cString)*22))
+	oPrint:Say  (nRow2+0250,nCol,cString,oFont11c)
+
+	oPrint:Say  (nRow2+0310,100 ,"Cedente"                                        ,oFont8)
+	oPrint:Say  (nRow2+0350,100 ,aDadosEmp[1]+"       - "+aDadosEmp[6]	,oFont10) //Nome + CNPJ
+
+	oPrint:Say  (nRow2+0310,1810,"Agência/Código Cedente",oFont8)
+	cString := Alltrim(aDadosBanco[3]+" / "+aDadosBanco[9])
+	nCol  := 1810+(460-(len(cString)*22))
+	oPrint:Say  (nRow2+0350,nCol,cString,oFont11c)
+
+	oPrint:Say  (nRow2+0410,100 ,"Data do Documento"                              ,oFont8)
+	oPrint:Say  (nRow2+0440,100, StrZero(Day(aDadosTit[2]),2) +"/"+ StrZero(Month(aDadosTit[2]),2) +"/"+ Right(Str(Year(aDadosTit[2])),4),oFont10)
+
+	oPrint:Say  (nRow2+0410,505 ,"Número do Documento"                      ,oFont8)
+	If !Empty(MV_PAR07)
+		oPrint:Say  (nRow2+0440,605 ,SubStr(TRIM(MV_PAR07),1,40)						,oFont10) //Prefixo +Numero+Parcela
+	Else
+		oPrint:Say  (nRow2+0440,605 ,aDadosTit[7]+aDadosTit[1]						,oFont10) //Prefixo +Numero+Parcela
+	Endif
+
+	oPrint:Say  (nRow2+0410,1005,"Espécie Documento"                                   ,oFont8)
+	oPrint:Say  (nRow2+0440,1050,"DM"										,oFont10) //Tipo do Titulo
+
+	oPrint:Say  (nRow2+0410,1305,"Aceite"                                         ,oFont8)
+	oPrint:Say  (nRow2+0440,1400,"N"                                             ,oFont10)
+
+	oPrint:Say  (nRow2+0410,1485,"Data do Processamento"                          ,oFont8)
+	oPrint:Say  (nRow2+0440,1550,StrZero(Day(aDadosTit[3]),2) +"/"+ StrZero(Month(aDadosTit[3]),2) +"/"+ Right(Str(Year(aDadosTit[3])),4),oFont10) // Data impressao
+
+	oPrint:Say  (nRow2+0410,1810,"Nosso Número"                                   ,oFont8)
+	cString := Alltrim(Substr(aDadosTit[6],1,12) +  ' ' + Alltrim(str(cDVNrBanc)) )
+	nCol := 1810+(444-(len(cString)*22))
+	oPrint:Say  (nRow2+0440,nCol,cString,oFont11c)
+
+	//oPrint:Say  (nRow2+0480,100 ,"Uso do Banco"                                   ,oFont8)
+
+	//oPrint:Say  (nRow2+0480,505 ,"Carteira"                                       ,oFont8)
+	//oPrint:Say  (nRow2+0510,555 ,aDadosBanco[6]                                   ,oFont10)
+	oPrint:Say  (nRow2+0480,100 ,"Carteira    "                                   ,oFont8)
+	oPrint:Say  (nRow2+0510,105 ,"RCR"                                            ,oFont10)
+	//oPrint:Say  (nRow2+0510,105 ,aDadosBanco[6]                                  ,oFont10)
+	//Alteração.: 05/05/2009 Josilton
+
+	oPrint:Say  (nRow2+0480,755 ,"Espécie"                                        ,oFont8)
+	oPrint:Say  (nRow2+0510,805 ,"REAL"                                             ,oFont10)
+
+	oPrint:Say  (nRow2+0480,1005,"Quantidade"                                     ,oFont8)
+	oPrint:Say  (nRow2+0480,1485,"Valor"                                          ,oFont8)
+
+	oPrint:Say  (nRow2+0480,1810,"(=) Valor do Documento"                          	,oFont8)
+	cString := Alltrim(Transform(aDadosTit[5],"@E 99,999,999.99"))
+	nCol := 1810+(460-(len(cString)*22))
+	oPrint:Say  (nRow2+0510,nCol,cString ,oFont11c)
+
+	oPrint:Say  (nRow2+0550,100 ,"Instruções (Termo de responsabilidade do cedente)",oFont8)
+	oPrint:Say  (nRow2+0600,100 ,aBolText[1]	,oFont10)
+	oPrint:Say  (nRow2+0650,100 ,aBolText[2]                                                                        	,oFont10)
+	If !Empty(MV_PAR07)
+		oPrint:Say(nRow2+0700,100 ,"Referente Notas "+Trim(mv_par07)  	,oFont10) 
+	Endif	
+	//oPrint:Say  (nRow2+0700,100 ,aBolText[3]                                                                       	,oFont10) Alterado - Josilton 07-05-09 Tirado a desclição de "Valor por extenço"
+	oPrint:Say  (nRow2+0800,100 ,cRet																					,oFont10)
+
+	oPrint:Say  (nRow2+0550,1810,"(-)Desconto"                         ,oFont8)
+	//cString := Alltrim(Transform(aDadosTit[09],"@E 99,999,999.99"))
+	//nCol := 1810+(460-(len(cString)*22))
+	//oPrint:Say  (nRow2+0580,nCol,cString ,oFont11c)
+
+
+
+
+	oPrint:Say  (nRow2+0620,1810,"(-)Abatimento"                             ,oFont8)
+	oPrint:Say  (nRow2+0690,1810,"(+)Mora"                                  ,oFont8)
+	oPrint:Say  (nRow2+0760,1810,"(+)Outros Acréscimos"                           ,oFont8)
+	oPrint:Say  (nRow2+0830,1810,"(=)Valor Cobrado"                               ,oFont8)
+
+	oPrint:Say  (nRow2+0900,100 ,"Sacado"                                         ,oFont8)
+	oPrint:Say  (nRow2+0920,400 ,aDatSacado[1]+" ("+aDatSacado[2]+" )"            ,oFont10)
+	oPrint:Say  (nRow2+0980,400 ,aDatSacado[3]                                    ,oFont10)
+	//oPrint:Say  (nRow2+1036,400 ,aDatSacado[4]+" - "+aDatSacado[5]+ "   CEP: " + aDatSacado[6],oFont10) // Cidade+Estado+CEP
+	oPrint:Say  (nRow2+1030,400 ,aDatSacado[4]+" - "+aDatSacado[5]+ " CEP: " + aDatSacado[6],oFont10) // Cidade+Estado+CEP
+	if aDatSacado[8] = "F"
+		oPrint:Say  (nRow2+1070,400 ,"CPF: "+TRANSFORM(aDatSacado[7],"@R 999.999.999-99"),oFont10) 	// CPF
+	Else
+		oPrint:Say  (nRow2+1070,400 ,"CNPJ: "+TRANSFORM(aDatSacado[7],"@R 99.999.999/9999-99"),oFont10) // CGC
+	EndIf
+
+	//oPrint:Say  (nRow2+1089,1850,Substr(aDadosBanco[6],1,3)+Alltrim((aDadosTit[6]))+ Alltrim(str(cDVNrBanc))  ,oFont10)
+
+	oPrint:Say(nRow2+1145,100 ,"Beneficiário final",oFont8)
+	oPrint:Say  (nRow2+1145,1500,"Autenticação Mecânica",oFont8)
+
+	oPrint:Line (nRow2+0210,1800,nRow2+0900,1800 ) 
+	oPrint:Line (nRow2+0620,1800,nRow2+0620,2300 )
+	oPrint:Line (nRow2+0690,1800,nRow2+0690,2300 )
+	oPrint:Line (nRow2+0760,1800,nRow2+0760,2300 )
+	oPrint:Line (nRow2+0830,1800,nRow2+0830,2300 )
+	oPrint:Line (nRow2+0900,100 ,nRow2+0900,2300 )
+	oPrint:Line (nRow2+1140,100 ,nRow2+1140,2300 )
+
+
+	/******************/
+	/* TERCEIRA PARTE */
+	/******************/
+
+	//nRow3 := 0
+
+	For nI := 100 to 2300 step 50
+		oPrint:Line(nRow3+1380, nI, nRow3+1380, nI+30)
+	Next nI
+
+	oPrint:Line (nRow3+1500,100,nRow3+1500,2300)
+	oPrint:Line (nRow3+1500,500,nRow3+1420, 500)
+	oPrint:Line (nRow3+1500,710,nRow3+1420, 710)
+
+	//oPrint:Say  (nRow3+1434,100,aDadosBanco[2],oFont13 )		// 	[2]Nome do Banco
+	oPrint:SayBitmap(nRow3+1400,100,"SANTANDER.BMP",400,100) //300, 120      // Imprime o Logo do Banco
+	oPrint:Say  (nRow3+1425,513,aDadosBanco[1]+"-7",oFont21 )	// 	[1]Numero do Banco
+	oPrint:Say  (nRow3+1434,755,aCB_RN_NN[2],oFont14n)			//	Linha Digitavel do Codigo de Barras
+
+	oPrint:Line (nRow3+1600,100,nRow3+1600,2300 )
+	oPrint:Line (nRow3+1700,100,nRow3+1700,2300 )
+	oPrint:Line (nRow3+1770,100,nRow3+1770,2300 )
+	oPrint:Line (nRow3+1840,100,nRow3+1840,2300 )
+
+	oPrint:Line (nRow3+1700,500 ,nRow3+1840,500 )
+	oPrint:Line (nRow3+1770,750 ,nRow3+1840,750 )
+	oPrint:Line (nRow3+1700,1000,nRow3+1840,1000)
+	oPrint:Line (nRow3+1700,1300,nRow3+1770,1300)
+	oPrint:Line (nRow3+1700,1480,nRow3+1840,1480)
+
+	oPrint:Say  (nRow3+1500,100 ,"Local de Pagamento",oFont8)
+	//oPrint:Say  (nRow3+1515,400 ,"ATÉ O VENCIMENTO, PREFERENCIALMENTE NO BANCO SANTANDER/BANESPA.",oFont10)
+	//oPrint:Say  (nRow3+1555,400 ,"APÓS O VENCIMENTO, SOMENTE NO BANCO SANTANDER/BANESPA",oFont10)
+	//oPrint:Say  (nRow3+1515,400 ,"",oFont10)
+	oPrint:Say  (nRow3+1515,400 ,"Pagar preferencialmente no Grupo Santander",oFont10)
+
+	oPrint:Say  (nRow3+1500,1810,"Vencimento",oFont8)
+	cString := StrZero(Day(aDadosTit[4]),2) +"/"+ StrZero(Month(aDadosTit[4]),2) +"/"+ Right(Str(Year(aDadosTit[4])),4)
+	nCol	 	 := 1810+(460-(len(cString)*22))
+	oPrint:Say  (nRow3+1540,nCol,cString,oFont11c)
+
+	oPrint:Say  (nRow3+1600,100 ,"Cedente",oFont8)
+	oPrint:Say  (nRow3+1640,100 ,aDadosEmp[1]+"       - "+aDadosEmp[6]	,oFont10) //Nome + CNPJ
+
+	oPrint:Say  (nRow3+1600,1810,"Agência/Código Cedente",oFont8)
+	cString := Alltrim(aDadosBanco[3]+"/"+aDadosBanco[9])
+	nCol 	 := 1810+(460-(len(cString)*22))
+	oPrint:Say  (nRow3+1640,nCol,cString ,oFont11c)
+
+	oPrint:Say  (nRow3+1700,100 ,"Data do Documento"                              ,oFont8)
+	oPrint:Say (nRow3+1730,100, StrZero(Day(aDadosTit[2]),2) +"/"+ StrZero(Month(aDadosTit[2]),2) +"/"+ Right(Str(Year(aDadosTit[2])),4), oFont10)
+
+	oPrint:Say  (nRow3+1700,505 ,"Número do Documento"                                  ,oFont8)
+	If !Empty(MV_PAR07)
+		oPrint:Say  (nRow3+1730,605 ,SubStr(TRIM(MV_PAR07),1,40)						,oFont10) //Prefixo +Numero+Parcela
+	Else	
+		oPrint:Say  (nRow3+1730,605 ,aDadosTit[7]+aDadosTit[1]						,oFont10) //Prefixo +Numero+Parcela
+	Endif
+	oPrint:Say  (nRow3+1700,1005,"Espécie Documento"                                   ,oFont8)
+	oPrint:Say  (nRow3+1730,1050,"DM"										,oFont10) //Tipo do Titulo
+
+	oPrint:Say  (nRow3+1700,1305,"Aceite"                                         ,oFont8)
+	oPrint:Say  (nRow3+1730,1400,"N"                                             ,oFont10)
+
+	oPrint:Say  (nRow3+1700,1485,"Data do Processamento"                          ,oFont8)
+	oPrint:Say  (nRow3+1730,1550,StrZero(Day(aDadosTit[3]),2) +"/"+ StrZero(Month(aDadosTit[3]),2) +"/"+ Right(Str(Year(aDadosTit[3])),4)                               ,oFont10) // Data impressao
+
+	oPrint:Say  (nRow3+1700,1810,"Nosso Número"                                   ,oFont8)
+	cString := Alltrim(Substr(aDadosTit[6],1,12) +  ' ' + Alltrim(str(cDVNrBanc))  )
+	nCol:= 		1810+(444-(len(cString)*22))
+	oPrint:Say  (nRow3+1730,nCol,cString,oFont11c)
+
+
+	//oPrint:Say  (nRow3+1770,100 ,"Uso do Banco"                                   ,oFont8)
+	//oPrint:Say  (nRow3+1770,505 ,"Carteira"                                       ,oFont8)
+	//oPrint:Say  (nRow3+1800,555 ,aDadosBanco[6]                                  	,oFont10)
+
+	oPrint:Say  (nRow3+1770,100 ,"Carteira"                                   ,oFont8)
+	oPrint:Say  (nRow3+1800,105 ,"RCR"                        	,oFont10)
+	//oPrint:Say  (nRow3+1800,105 ,aDadosBanco[6]                        	,oFont10)
+	//Alteração.: 05/05/2009 Josilton
+
+	oPrint:Say  (nRow3+1770,755 ,"Espécie"                                        ,oFont8)
+	oPrint:Say  (nRow3+1800,805 ,"REAL"                                             ,oFont10)
+
+	oPrint:Say  (nRow3+1770,1005,"Quantidade"                                     ,oFont8)
+	oPrint:Say  (nRow3+1770,1485,"Valor"                                          ,oFont8)
+
+	oPrint:Say  (nRow3+1770,1810,"(=) Valor do Documento"                          	,oFont8)
+	cString:=   Alltrim(Transform(aDadosTit[5],"@E 99,999,999.99"))
+	nCol:=      1810+(460-(len(cString)*22))
+	oPrint:Say  (nRow3+1800,nCol,cString,oFont11c)
+
+
+
+	oPrint:Say  (nRow3+1840,100 ,"Instruções (Termo de responsabilidade do cedente)",oFont8)
+	oPrint:Say  (nRow3+1890,100 ,aBolText[1],oFont10)
+	oPrint:Say  (nRow3+1940,100 ,aBolText[2],oFont10)
+	If !Empty(MV_PAR07)
+		oPrint:Say(nRow3+1990,100 ,"Referente Notas "+Trim(mv_par07)  	,oFont10) 
+	Endif	
+	oPrint:Say  (nRow3+2090,100 ,cRet																					,oFont10)
+
+
+
+
+
+	oPrint:Say  (nRow3+1840,1810,"(-)Desconto"                         ,oFont8)
+	//cString := Alltrim(Transform(aDadosTit[09],"@E 99,999,999.99"))
+	//nCol := 1810+(460-(len(cString)*22))
+	//oPrint:Say  (nRow3+1870,nCol,cString ,oFont11c)
+
+	oPrint:Say  (nRow3+1910,1810,"(-)Abatimento"                      ,oFont8)
+	oPrint:Say  (nRow3+1980,1810,"(+)Mora"                              ,oFont8)
+	oPrint:Say  (nRow3+2050,1810,"(+)Outros Acréscimos"         ,oFont8)
+	oPrint:Say  (nRow3+2120,1810,"(=)Valor Cobrado"                ,oFont8)
+
+	oPrint:Say  (nRow3+2190,100 ,"Sacado"                                         ,oFont8)
+	oPrint:Say  (nRow3+2207,400 ,aDatSacado[1]+" ("+aDatSacado[2]+" )"             ,oFont10)
+	oPrint:Say  (nRow3+2239,400 ,aDatSacado[3]                                    ,oFont10)
+	oPrint:Say  (nRow3+2279,400 ,aDatSacado[4]+" - "+aDatSacado[5]+ " CEP: " + aDatSacado[6]	,oFont10) // Cidade+Estado+CEP
+	//oPrint:Say  (nRow3+2306,1750,Substr(aDadosBanco[6],1,3)+Alltrim((aDadosTit[6]))+Alltrim(str(cDVNrBanc)),oFont10)
+
+	if aDatSacado[8] = "F"
+		oPrint:Say  (nRow3+2320,400,"CPF: "+TRANSFORM(aDatSacado[7],"@R 999.999.999-99"),oFont10) 	// CPF
+	Else
+		//oPrint:Say  (nRow3+2200,1750,"CNPJ: "+TRANSFORM(aDatSacado[7],"@R 99.999.999/9999-99"),oFont10) // CGC
+		oPrint:Say  (nRow3+2320,400,"CNPJ: "+TRANSFORM(aDatSacado[7],"@R 99.999.999/9999-99"),oFont10) // CGC
+	EndIf
+	oPrint:Say(nRow3+2355,100 ,"Beneficiário final"                               ,oFont8)
+	oPrint:Say  (nRow3+2355,1500,"Autenticação Mecânica - Ficha de Compensação"                        ,oFont8)
+
+	oPrint:Line (nRow3+1500,1800,nRow3+2190,1800 )
+	oPrint:Line (nRow3+1910,1800,nRow3+1910,2300 )
+	oPrint:Line (nRow3+1980,1800,nRow3+1980,2300 )
+	oPrint:Line (nRow3+2050,1800,nRow3+2050,2300 )
+	oPrint:Line (nRow3+2120,1800,nRow3+2120,2300 )
+	oPrint:Line (nRow3+2190,100 ,nRow3+2190,2300 )
+	oPrint:Line (nRow3+2350,100,nRow3+2350,2300  )
+
+	//MSBAR("INT25",27.90,1  ,aCB_RN_NN[1],oPrint,.F.,Nil,Nil,0.025,1.5 ,Nil,Nil,"A",.F.)
+	MSBAR3("INT25" ,27.00,0.7,aCB_RN_NN[1],oPrint,.F.,Nil,.T.,0.025,1.25,Nil,Nil,"A",.F.)
+
+	oPrint:EndPage() // Finaliza a página
+
+Return Nil
+
+/*/{Protheus.doc} nomeStaticFunction
+	(long_description)
+	@type  Static Function
+	@author user
+	@since 20/07/2023
+	@version version
+	@param param_name, param_type, param_descr
+	@return return_var, return_type, return_description
+	@example
+	(examples)
+	@see (links_or_references)
+/*/
+Static Function yModulo10(cData)
+
+	Local L	:= Len(cData)
+	Local D	:= 0
+	Local P := 0
+	Local B	:= .T.
+
+	While L > 0
+
+		P := Val(SubStr(cData, L, 1))
+	
+		If (B)
+			P := P * 2
+			If P > 9
+				P := P - 9
+			EndIf
+		EndIf
+	
+		D := D + P
+		L := L - 1
+		B := !B
+	
+	EndDo
+
+	D := 10 - (Mod(D,10))
+
+	If D = 10
+		D := 0
+	EndIf
+
+Return(AllTrim(Str(D,1)))
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ Modulo11 ³ Autor ³ Microsiga             ³ Data ³ 13/10/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ IMPRESSAO DO BOLETO LASER DO SANTANDER COM CODIGO DE BARRAS     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Especifico para Clientes Microsiga                         ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function Modulo11(cData)
+	LOCAL L, D, P := 0
+	L := Len(cdata)
+	D := 0
+	P := 1
+	While L > 0
+		P := P + 1
+		D := D + (Val(SubStr(cData, L, 1)) * P)
+		If P = 9
+			P := 1
+		End
+		L := L - 1
+	End
+	D := 11 - (mod(D,11))
+	If (D == 0 .Or. D == 1 .Or. D == 10 .Or. D == 11)
+		D := 1
+	End
+Return(D)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ Modulo11Nn ³ Autor ³ Microsiga             ³ Data ³ 13/10/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ IMPRESSAO DO BOLETO LASER DO SANTANDER COM CODIGO DE BARRAS     ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Especifico para Clientes Microsiga                         ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function Modulo11Nn(cData)
+	LOCAL L, D, P,R := 0
+	L := Len(cdata)
+	D := 0
+	P := 1
+	While L > 0
+		P := P + 1
+		D := D + (Val(SubStr(cData, L, 1)) * P)
+		If P = 9
+			P := 1
+		End
+		L := L - 1
+	End
+
+	R := mod(D,11)
+	If (R == 10)
+		D := 1
+	ElseIf (R == 0 .or. R == 1)
+		D := 0
+	Else
+		D := (11 - R)
+	End              
+
+Return(D)
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³Ret_cBarra³ Autor ³ Microsiga             ³ Data ³ 13/10/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ IMPRESSAO DO BOLETO LASE DO SANTANDER COM CODIGO DE BARRAS      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Especifico para Clientes Microsiga                         ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function Ret_cBarra(cBanco,cAgencia,cConta,cDacCC,cNrBancario,nValor,dVencto,cCart,cCedente)
+
+	LOCAL cValorFinal 	:= strzero(nValor*100,10)
+	LOCAL nDvnn			:= 0
+	LOCAL nDvcb			:= 0
+	LOCAL nDv			:= 0
+	LOCAL cNN			:= ''
+	LOCAL cRN			:= ''
+	LOCAL cCB			:= ''
+	LOCAL cS				:= ''
+	LOCAL cFator      := strzero(dVencto - ctod("07/10/97"),4)
+
+	//----------------------------------
+	//	 Definicao do CODIGO DE BARRAS
+	//----------------------------------
+	// cBanco está igual a 0339
+	cS:= cBanco + cFator +  cValorFinal + "9" + cCedente + cNrBancario + "0" + cCart
+	nDvcb := modulo11(cS)
+	cCB   := SubStr(cS, 1, 4) + AllTrim(Str(nDvcb)) + SubStr(cS,5,39)
+
+	//-------- Definicao da LINHA DIGITAVEL (Representacao Numerica)
+	//	Campo 1			Campo 2			Campo 3			Campo 4		Campo 5
+	//	AAABC.DDDDX		EEEFF.FFFFFY	GGGGG.GHJJJZ	K			UUUUVVVVVVVVVV
+
+	// 	CAMPO 1:
+	//	AAA	= Codigo do banco na Camara de Compensacao   
+	//	  B = Codigo da moeda, sempre 9
+	//	  C = Fixo "9"
+	//	 DDDD = 4 Primeiras posicoes do codigo do cedente padrao Santander Banespa
+	//	  X = DAC que amarra o campo, calculado pelo Modulo 10 da String do campo
+
+	cS1   := cBanco + "9" + SubStr(cCedente,1,4)
+	nDv1  := Modulo10(cS1)
+	cRN1  := SubStr(cS1, 1, 5) + '.' + SubStr(cS1, 6, 4) + AllTrim(Str(nDv1)) + '   '
+
+	// 	CAMPO 2:
+	//	EEE  = Restante do Codigo do Cedente padrao Santander Banesp
+	//	FFFFFFF = Sete primeiros campos do Nosso Numero
+	//	     Y = DAC que amarra o campo, calculado pelo Modulo 10 da String do campo
+
+	cS2 := SubStr(cCedente,5,3) + SubStr(cNrBancario,1,7) 
+	nDv2:= Modulo10(cS2)
+	cRN2:= SubStr(cS2, 1, 5) + '.' + SubStr(cS2, 6, 5) + AllTrim(Str(nDv2)) + '   '
+
+	// 	CAMPO 3:
+	//	GGGGGG = Restante do Nosso Numero                  
+	//	H              = 0  (Conteudo Fixo)
+	//	JJJ            = Carteira
+	//	     Z = DAC que amarra o campo, calculado pelo Modulo 10 da String do campo
+	cS3   := Subs(cNrBancario,8,6) + "0" + cCart
+	nDv3  := Modulo10(cS3)
+	cRN3  := SubStr(cS3, 1, 5) + '.' + SubStr(cS3, 6, 5) + AllTrim(Str(nDv3)) + '   '
+
+	//	CAMPO 4:
+	//	     K = DAC do Codigo de Barras
+	cRN4  := AllTrim(Str(nDvcb)) + '  '
+
+	// 	CAMPO 5:
+	//	      UUUU = Fator de Vencimento
+	//	VVVVVVVVVV = Valor do Titulo
+	cRN5  := cFator + cValorFinal
+
+	cRN	  := cRN1 + cRN2 + cRN3 + cRN4 + cRN5
+
+Return({cCB,cRN})
+
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³ENVIAEMAILºAutor  ³LEANDRO
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Exp1 - Titulo do email                                      º±±
+±±º          ³Exp2 - destinantarios                                       º±±
+±±º          ³Exp3 - Destinatarios ocultos                               º±±
+±±º          ³Exp4 - Corpo da mensagen                                    º±±
+±±ºDesc.     ³Exp5 - Local do Arquivo                                     º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function EmailDesc(_nnDescAtua,_nnDescNovo,_ccDescDife)
+
+	Local lResult       := .f.                // Resultado da tentativa de comunicacao com servidor de E-Mail
+
+	Private cAttachment   := _cFileAttach
+	Private lAutentica    := GetMV("MV_RELAUTH")
+	Private _cMensagem    := _ccDescDife
+
+	cTitulo  := "Alteracao de Desconto Em data diferente do Caixa."
+	cDestina := "escritorio@fortfruit.com.br ; silvia@fortfruit.com.br"
+
+	cServer   := "pop."+SubStr(GetMV("MV_RELSERV"),6,LEN(GetMV("MV_RELSERV")))
+	cSmtp        := GetMV("MV_RELSERV")
+	cUser     := GetMV("MV_RELACNT")
+	cPassword := GetMV("MV_RELAPSW")
+	nTimeOut  := 30
+	lResult := .T.
+
+	If !MailSmtpOn ( cSmtp, cUser, cPassword, nTimeOut )
+		lResult := .F.    
+		RETURN(lResult)
+	Endif
+	If  lAutentica .And. !MailAuth (cUser, cPassword)
+		lResult := .F.    
+		RETURN(lResult)
+	Endif
+
+	If lResult
+
+		//Verifica se o E-mail necessita de Autenticacao
+		lResult         := .F.                                                         
+		cFrom             := GetMV("MV_RELACNT")
+		aTo               := {}
+		Aadd(aTo,cDestina)
+		aCc                := {}
+		aBcc            := {}
+		//Aadd(aBcc,)
+		cSubject         := cTitulo
+		cBody           := _cMensagem
+		aFiles            := {}  //
+		lText            := .F. // TEXTO
+		If MailSend ( cFrom, aTo,aCc,aBcc, cSubject, cBody, aFiles, lText )
+			lResult := .T.
+		Endif
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Finaliza conexao com o servidor de E-Mail ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+
+	EndIf
+Return(lResult)
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³ENVIAEMAILºAutor  ³LEANDRO
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Exp1 - Titulo do email                                      º±±
+±±º          ³Exp2 - destinantarios                                       º±±
+±±º          ³Exp3 - Destinatarios ocultos                               º±±
+±±º          ³Exp4 - Corpo da mensagen                                    º±±
+±±ºDesc.     ³Exp5 - Local do Arquivo                                     º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function PergFB01()
+
+	Local _lRetDialog := .F.
+	Local _nAviso := 0
+
+	Local cFontUti    := "Tahoma"
+    Local oFontAno    := TFont():New(cFontUti,,-38)
+    Local oFontSub    := TFont():New(cFontUti,,-20)
+    Local oFontSubN   := TFont():New(cFontUti,,-20,,.T.)
+    Local oFontBtn    := TFont():New(cFontUti,,-14)
+
+	PRIVATE _cCampo1 := Space(10)
+	PRIVATE _cCampo2 := Space(8)
+	PRIVATE _cCampo3 := Space(30)
+	PRIVATE _cCampo4 := Space(2)
+	PRIVATE _cCampo5 := Space(8)
+	PRIVATE _cCampo6 := Space(150)
+	PRIVATE _cCampo7 := Space(06)
+	PRIVATE _nTits   := 0
+
+	Private oTela
+	Private oCampo1
+	Private oCampo2
+	Private oCampo3
+	Private oCampo4
+	Private oCampo5
+	Private oCampo6
+	Private oCampo7
+	Private oCampo8
+	Private oCampo9
+	Private nVlAtu
+	/*
+	Private cMV01 := PadR("",TamSX3("Z4_BILHETE")[1])
+	Private cMV02 := PadR("",TamSX3("Z4_BILHETE")[1])
+	Private lWhen := .t.
+	*/
+
+	MV_PAR01 := SPACE(TamSx3("E1_NUM")[1])
+	MV_PAR02 := SPACE(TamSx3("E1_NUM")[1])
+	MV_PAR03 := SPACE(TamSx3("E1_PREFIXO")[1])
+
+	MV_PAR04 := SPACE(TamSx3("A6_COD")[1])
+	MV_PAR05 := SPACE(TamSx3("A6_AGENCIA")[1])
+	MV_PAR06 := SPACE(TamSx3("A6_NUMCON")[1])
+	MV_PAR07 := Space(60)
+
+	MV_PAR08 := 0
+	MV_PAR09 := "  "    
+	
+	cMV01 := MV_PAR01
+	lWhen := .t.
+
+	If IsInCallStack("U_RFATA07") .or. AllTrim(FunName()) == "RFATA07"
+	
+		cMV01 := SZB->ZB_NUMSEQ
+		cMV02 := SZB->ZB_NUMSEQ
+		MV_PAR03 := "BIL"
+
+		SZ4->( dbSetOrder(1) ) // Z4_FILIAL, Z4_BILHETE, R_E_C_N_O_, D_E_L_E_T_
+		SZ4->( dbSeek(FWxFilial("SZ4")+cMV01) )
+		MV_PAR07 := PadR(AllTrim(SZ4->Z4_NOTA),60)
+
+		// Decréscimo
+		SE1->( dbSetOrder(1) )
+		SE1->( dbSeek(FWxFilial("SE1")+MV_PAR03+PadR(AllTrim(SZ4->Z4_BILHETE),TamSX3("E1_NUM")[1])))
+		MV_PAR08 := SE1->E1_SDDECRE
+		//MV_PAR08 := SE1->E1_DECRESC
+		
+		lWhen := .f.
+	
+	ElseIf IsInCallStack("U_RFATA03") .or. AllTrim(FunName()) == "RFATA03"
+
+		cMV01 := SZ4->Z4_BILHETE
+		cMV02 := SZ4->Z4_BILHETE
+		MV_PAR03 := "BIL"
+		MV_PAR07 := PadR(AllTrim(SZ4->Z4_NOTA),60)
+
+		// Decréscimo
+		SE1->( dbSetOrder(1) )
+		SE1->( dbSeek(FWxFilial("SE1")+MV_PAR03+PadR(AllTrim(SZ4->Z4_BILHETE),TamSX3("E1_NUM")[1])))
+		MV_PAR08 := SE1->E1_SDDECRE
+		//MV_PAR08 := SE1->E1_DECRESC
+
+		lWhen := .f.
+
+	EndIf
+	
+	/*
+	If AllTrim(FunName()) == "RFINB01" .or. IsInCallStack("U_RFINB01")
+
+		MV_PAR01 := SPACE(TamSx3("E1_NUM")[1])
+		MV_PAR02 := SPACE(TamSx3("E1_NUM")[1])
+		MV_PAR03 := SPACE(TamSx3("E1_PREFIXO")[1])
+		cMV01 := MV_PAR01
+		lWhen := .t.
+
+	Else
+
+		MV_PAR01 := cMV01 //SPACE(TamSx3("E1_NUM")[1])
+		MV_PAR02 := cMV02 //SPACE(TamSx3("E1_NUM")[1])
+		MV_PAR03 := "BIL" //SPACE(TamSx3("E1_PREFIXO")[1])
+
+	EndIf
+	*/
+	
+	/*MV_PAR04 := SPACE(TamSx3("A6_COD")[1])
+	MV_PAR05 := SPACE(TamSx3("A6_AGENCIA")[1])
+	MV_PAR06 := SPACE(TamSx3("A6_NUMCON")[1])
+	MV_PAR08 := 0
+	MV_PAR09 := "  "    */
+
+	If AllTrim(FWCodEmp()) == "01"
+
+		MV_PAR04 := "237"
+		MV_PAR05 := PadR("0502",TamSX3("A6_AGENCIA")[1])
+		MV_PAR06 := PadR("745502",TamSX3("A6_NUMCON")[1])
+		MV_PAR09 := "09"
+
+	ElseIf AllTrim(FWCodEmp()) == "14" 
+
+		If AllTrim(FWCodFil()) == "01"
+
+			MV_PAR04 := Posicione("SA1",1,FWxFilial("SA1")+SZ4->(Z4_CLIENTE+Z4_LOJA),"A1_BCO1")
+
+			If Empty(AllTrim(MV_PAR04))
+				MV_PAR05 := PadR("0502",TamSX3("A6_AGENCIA")[1])  // "0502"   //GetMV(FF_AGEBOL)
+				MV_PAR06 := PadR("729108",TamSX3("A6_NUMCON")[1])  // "729108" //GetMV(FF_CTCBOL)
+				MV_PAR09 := "09"
+			ElseIf AllTrim(MV_PAR04) == "237"
+				MV_PAR05 := PadR("0502",TamSX3("A6_AGENCIA")[1])  // "0502"   //GetMV(FF_AGEBOL)
+				MV_PAR06 := PadR("729108",TamSX3("A6_NUMCON")[1])  // "729108" //GetMV(FF_CTCBOL)
+				MV_PAR09 := "09"
+			ElseIf AllTrim(MV_PAR04) == "422"
+				//_cAg_Conta := "04800/005840731"
+				MV_PAR05 := PadR("0048",TamSX3("A6_AGENCIA")[1])  // "0502"   //GetMV(FF_AGEBOL)
+				MV_PAR06 := PadR("584073",TamSX3("A6_NUMCON")[1])  // "729108" //GetMV(FF_CTCBOL)
+				MV_PAR09 := "01"
+			EndIf
+
+		ElseIf AllTrim(FWCodFil()) == "04"
+			
+			MV_PAR04 := "033"
+			MV_PAR05 := PadR("3835",TamSX3("A6_AGENCIA")[1])
+			MV_PAR06 := PadR("0130018615",TamSX3("A6_NUMCON")[1])
+			MV_PAR09 := "101"
+
+
+		ElseIf AllTrim(FWCodFil()) == "06"
+			
+			MV_PAR04 := "237"
+			MV_PAR05 := PadR("0502",TamSX3("A6_AGENCIA")[1])
+			MV_PAR06 := PadR("00019879",TamSX3("A6_NUMCON")[1])
+			MV_PAR09 := "09"
+
+		EndIf
+
+	ElseIf AllTrim(FWCodEmp()) == "17" 
+
+		MV_PAR04 := "033"
+		MV_PAR05 := PadR("3191",TamSX3("A6_AGENCIA")[1])
+		MV_PAR06 := PadR("0130029627",TamSX3("A6_NUMCON")[1])
+		MV_PAR09 := "101"
+
+	ElseIf AllTrim(FWCodEmp()) == "20" 
+
+		MV_PAR04 := "237"
+		MV_PAR05 := PadR("1122",TamSX3("A6_AGENCIA")[1])
+		MV_PAR06 := PadR("011878",TamSX3("A6_NUMCON")[1])
+		MV_PAR09 := "09"
+
+	ElseIf AllTrim(FWCodEmp()) == "24" 
+
+		MV_PAR04 := "033"
+		MV_PAR05 := PadR("3835",TamSX3("A6_AGENCIA")[1])
+		MV_PAR06 := PadR("0130024476",TamSX3("A6_NUMCON")[1])
+		MV_PAR09 := "101"
+
+	EndIf
+
+	DEFINE MSDIALOG oTela from 000,000 to 400,500 title "Boleto - Geração/Impressão" pixel
+
+	If AllTrim(FunName()) <> "RFINB01"
+		@ 004, 003 SAY "Dados do bilhete posicionado" SIZE 200, 030 FONT /*oFontAno*/oFontSubN  OF oTela COLORS RGB(149,179,215) PIXEL
+	EndIf
+
+	@ 030,005 Say OemToAnsi('Serie') PIXEL COLORS CLR_HBLUE OF oTela
+	@ 045,005 Say OemToAnsi('Bilhete') PIXEL COLORS CLR_HBLUE OF oTela
+	@ 060,005 Say OemToAnsi('Banco') PIXEL COLORS CLR_HBLUE OF oTela
+	@ 075,005 Say OemToAnsi('Agencia') PIXEL COLORS CLR_HBLUE OF oTela
+	@ 090,005 Say OemToAnsi('Conta') PIXEL COLORS CLR_HBLUE OF oTela
+	@ 105,005 Say OemToAnsi('Notas') PIXEL COLORS CLR_HBLUE OF oTela
+	@ 120,005 Say OemToAnsi('Desconto') PIXEL COLORS CLR_HBLUE OF oTela
+	@ 135,005 Say OemToAnsi('Carteira') PIXEL COLORS CLR_HBLUE OF oTela
+
+	/*
+	Sintaxe
+	@ nLinha, nColuna MSGET VARIAVEL SIZE nLargura,nAltura UNIDADE OF oObjetoRef F3 cF3 VALID validação WHEN condição PICTURE cPicture
+	*/
+
+	@ 030,080 MsGet MV_PAR03 SIZE 40,08  PIXEL OF oTela Valid !empty(MV_PAR03) Picture "@!" When lWhen
+	
+	//@ 045,080 MsGet oCampo1 VAR cMV01 SIZE 40,08  PIXEL OF oTela F3 "SZ4" Valid FVLDDL01("1") When lWhen //Picture "@!"
+	@ 045,080 MsGet cMV01 SIZE 40,08  PIXEL OF oTela F3 "SZ4" Valid FVLDDL01("1") When lWhen //Picture "@!"
+	//@ 010, 285 	MSGET cTpSld  SIZE 020, 10 OF oDlg PIXEL When .F.
+	
+	//@ 025,130 MsGet oCampo2 VAR MV_PAR02 SIZE 40,08  PIXEL OF oTela F3 "SZ4" Valid FVLDDL01("2") When .f. //Picture "@!" 
+	
+	@ 060,080 MsGet MV_PAR04 SIZE 40,08  PIXEL OF oTela F3 "SA6" Valid EXISTCPO("SA6",MV_PAR04) Picture "@!" When .f.
+	@ 075,080 MsGet MV_PAR05 SIZE 40,08  PIXEL OF oTela Valid  EXISTCPO("SA6",MV_PAR04+MV_PAR05)  Picture "@!" When .f.
+	@ 090,080 MsGet MV_PAR06 SIZE 40,08  PIXEL OF oTela Valid EXISTCPO("SA6",MV_PAR04+MV_PAR05+MV_PAR06)   Picture "@!" When .f.
+	@ 105,080 MsGet MV_PAR07 SIZE 60,08  PIXEL OF oTela Picture "@!S60"
+	
+	//@ 120,080 MsGet oCampo8 VAR MV_PAR08 SIZE 40,08  PIXEL OF oTela Picture "@RE 999,999.99"
+	If (AllTrim(FWCodEmp()) == "14" .and. AllTrim(FWCodFil()) == "01")
+		@ 120,080 MsGet MV_PAR08 SIZE 40,08  PIXEL OF oTela Picture "@RE 999,999.99" When .f. // MVCFIDSC
+	Else
+		@ 120,080 MsGet MV_PAR08 SIZE 40,08  PIXEL OF oTela Picture "@RE 999,999.99"
+	EndIf
+	
+	@ 135,080 MsGet MV_PAR09 SIZE 40,08  PIXEL OF oTela Valid !empty(MV_PAR09) Picture "@!" When .f.
+
+	@ 150,190/*090*/ BUTTON "Confirmar"  OF oTela SIZE 040,040 PIXEL ACTION ( _lRetDialog := .T., Close(oTela) )
+	@ 175,140/*040*/ BUTTON "Cancelar"   OF oTela SIZE 040,015 PIXEL ACTION ( _lRetDialog := .F., Close(oTela) )
+
+	ACTIVATE MSDIALOG oTela CENTER
+
+	If _nTits > 0
+		nVLrDesRat := (MV_PAR08 /_nTits)
+		nVlAtu := MV_PAR08
+		MV_PAR08 := nVLrDesRat
+	EndIf
+
+	MV_PAR01 := cMV01
+
+	/*
+	If _nTits > 1
+		MV_PAR08 := 0
+		_nAviso := Aviso(" Emissao Boletos ","Devido estar sendo impresso mais de um boleto, nao serao considerados descontos ou mantidos os descontos ja aplicados !!! ",{"OK","CANCELA"})
+		If _nAviso == 2
+			_lRetDialog := .F.
+		Endif
+	Endif
+	*/
+Return(_lRetDialog)	
+
+/*
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÉÍÍÍÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍËÍÍÍÍÍÍÑÍÍÍÍÍÍÍÍÍÍÍÍÍ»±±
+±±ºPrograma  ³ENVIAEMAILºAutor  ³LEANDRO
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÊÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºDesc.     ³Exp1 - Titulo do email                                      º±±
+±±º          ³Exp2 - destinantarios                                       º±±
+±±º          ³Exp3 - Destinatarios ocultos                               º±±
+±±º          ³Exp4 - Corpo da mensagen                                    º±±
+±±ºDesc.     ³Exp5 - Local do Arquivo                                     º±±
+±±ÌÍÍÍÍÍÍÍÍÍÍØÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¹±±
+±±ºUso       ³ AP                                                         º±±
+±±ÈÍÍÍÍÍÍÍÍÍÍÏÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍÍ¼±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+*/
+
+Static Function FVLDDL01(_cParCpo)
+
+	Local _lRetVlD := .F.
+
+	If _cParCpo == "1"
+
+		SE1->(dbsetOrder(1))
+		SE1->(dbGoTop())
+		If !SE1->(dbSeek( xFilial("SE1")+ MV_PAR03 + cMV01 ))
+			Aviso(" Emissao Boletos ","Bilhete Nao Encontrado",{"OK"})
+			_lRetVlD := .F.
+		Else
+			MV_PAR08 := SE1->E1_DECRESC
+			_lRetVlD := .T.
+		Endif
+
+	Else
+		
+		SE1->(dbsetOrder(1))
+		SE1->(dbGoTop())
+		SE1->(dbSeek( xFilial("SE1")+ MV_PAR03 + cMV01 ))
+		While !SE1->(Eof()) .And. SE1->E1_NUM <= MV_PAR02 .And. SE1->E1_PREFIXO == MV_PAR03
+			_nTits++
+			SE1->(dbskip())
+		Enddo
+		If _nTits >= 1
+			_lRetVlD := .T.
+		Else
+			Aviso(" Emissao Boletos ","Bilhete Nao Encontrado",{"OK"})
+			_lRetVlD := .F.
+		Endif	
+
+	Endif	
+
+	If _lRetVld
+
+		If AllTrim(FWCodEmp()) == "14" 
+
+			If AllTrim(FWCodFil()) == "01"
+
+				MV_PAR04 := Posicione("SA1",1,FWxFilial("SA1")+SE1->(E1_CLIENTE+E1_LOJA),"A1_BCO1")
+
+				If Empty(AllTrim(MV_PAR04))
+					MV_PAR05 := PadR("0502",TamSX3("A6_AGENCIA")[1])  // "0502"   //GetMV(FF_AGEBOL)
+					MV_PAR06 := PadR("729108",TamSX3("A6_NUMCON")[1])  // "729108" //GetMV(FF_CTCBOL)
+					MV_PAR09 := "09"
+				ElseIf AllTrim(MV_PAR04) == "237"
+					MV_PAR05 := PadR("0502",TamSX3("A6_AGENCIA")[1])  // "0502"   //GetMV(FF_AGEBOL)
+					MV_PAR06 := PadR("729108",TamSX3("A6_NUMCON")[1])  // "729108" //GetMV(FF_CTCBOL)
+					MV_PAR09 := "09"
+				ElseIf AllTrim(MV_PAR04) == "422"
+					//_cAg_Conta := "04800/005840731"
+					MV_PAR05 := PadR("0048",TamSX3("A6_AGENCIA")[1])  // "0502"   //GetMV(FF_AGEBOL)
+					MV_PAR06 := PadR("584073",TamSX3("A6_NUMCON")[1])  // "729108" //GetMV(FF_CTCBOL)
+					MV_PAR09 := "01"
+				EndIf
+
+			EndIf
+
+		EndIf
+
+	EndIf
+
+Return(_lRetVlD)
+
+/*/{Protheus.doc} User Function nomeFunction
+	Utilizado no campo A1_BCO1
+	@type  Function
+	@author FWNM
+	@since 04/07/2023
+	@version version
+	@param param_name, param_type, param_descr
+	@return return_var, return_type, return_description
+	@example
+	(examples)
+	@see (links_or_references)
+	/*/
+User Function A1BCO1Lg(cX3)
+
+	Local lRet := .t.
+	Local cUsrBCO1 := GetMV("MV_#A1BCO1",,"000000|000017|000007|000012|000028|000267|000068|000135|000088")
+
+	If AllTrim(cX3) == "X3_WHEN"
+
+		If !(AllTrim(RetCodUsr()) $ cUsrBCO1 )
+			lRet := .f.
+		EndIf
+
+		u_GrvLogZLG( msDate(), TIME(), cUserName, "A1_BCO1", "BOLETO", "CONTEUDO ANTES ALTERAÇÃO: " + M->A1_BCO1,;
+		"Cliente: " + SA1->A1_COD + "/" + SA1->A1_LOJA + " na empresa/filial " + FWCodEmp() + "/" + FWCodFil() ,;
+		ComputerName(), LogUserName() )
+
+	ElseIf AllTrim(cX3) == "X3_VALID"
+
+		If !(AllTrim(RetCodUsr()) $ cUsrBCO1 )
+			lRet := .f.
+			Alert("Login não autorizado! Contate o financeiro...")
+		EndIf
+
+		u_GrvLogZLG( msDate(), TIME(), cUserName, "A1_BCO1", "BOLETO", "CONTEUDO DEPOIS ALTERAÇÃO: " + M->A1_BCO1,;
+		"Cliente: " + SA1->A1_COD + "/" + SA1->A1_LOJA + " na empresa/filial " + FWCodEmp() + "/" + FWCodFil() ,;
+		ComputerName(), LogUserName() )
+
+	ElseIf AllTrim(cX3) == "X3_RELACAO"
+
+		cRet := "" 
+		
+		If INCLUI
+
+			If AllTrim(FWCodEmp()) == "01"
+
+				cRet := "237"
+
+			ElseIf AllTrim(FWCodEmp()) == "14" 
+
+				If AllTrim(FWCodFil()) == "01"
+					cRet := "237"
+				ElseIf AllTrim(FWCodFil()) == "04"
+					cRet := "033"
+				ElseIf AllTrim(FWCodFil()) == "06"
+					cRet := "237"
+				EndIf
+
+			ElseIf AllTrim(FWCodEmp()) == "17" 
+
+				cRet := "033"
+
+			ElseIf AllTrim(FWCodEmp()) == "20" 
+				
+				cRet := "237"
+
+			ElseIf AllTrim(FWCodEmp()) == "24" 
+				
+				cRet := "033"
+
+			EndIf
+
+		EndIf
+
+		Return cRet
+	
+	EndIf
+	
+Return lRet
+
+/*/{Protheus.doc} nomeStaticFunction
+	Boleto SAFRA
+	@type  Static Function
+	@author FWNM
+	@since 06/07/2023
+	@version version
+	@param param_name, param_type, param_descr
+	@return return_var, return_type, return_description
+	@example
+	(examples)
+	@see (links_or_references)
+/*/
+Static Function fCalcBlt(cPrefixo,cNum,cParcela,cTipTit)
+
+	Local lRet				:= .T.
+	Local aArea				:= SaveArea1({"SEE","SE1","SA6","SF2","SE4"})
+	
+	Private cIDCNAB	:= "" //CriaVar("E1_IDCNAB",.F.) // Chamado n. 059415 - FWNM         - 05/08/2020 - || OS 060907 || FINANCAS || WAGNER || 11940283101 || WS BRADESCO - Ajuste na geração do E1_IDCNAB devido desativação das customizações antigas 
+	
+	PARAMTYPE 0	VAR cPrefixo	AS Character	OPTIONAL	DEFAULT Space(TamSX3("E1_PREFIXO")[1])
+	PARAMTYPE 1	VAR cNum		AS Character	OPTIONAL	DEFAULT Space(TamSX3("E1_NUM")[1])
+	PARAMTYPE 2	VAR cParcela	AS Character	OPTIONAL	DEFAULT Space(TamSX3("E1_PARCELA")[1])
+	PARAMTYPE 3	VAR cTipTit		AS Character	OPTIONAL	DEFAULT Space(TamSX3("E1_TIPO")[1])
+	
+	If Empty(SE1->E1_NUMBCO)
+
+		_cNumBoleta := StrZero(Val(AllTrim(SEE->EE_FAXATU))+1,9)
+
+		RecLock("SE1", .F.)
+			SE1->E1_NUMBCO  := _cNumBoleta
+			SE1->E1_PORTADO := SA1->A1_BCO1
+		SE1->( msUnLock() )
+
+		RecLock("SEE", .F.)	
+			SEE->EE_FAXATU := _cNumBoleta
+		SEE->( msUnLock() )
+
+
+	Else
+		_cNumBoleta := AllTrim(SE1->E1_NUMBCO)
+	EndIf
+
+	// Posiciona tabela de Bancos
+	SA6->(dbSeek(xFilial("SA6") + SEE->(EE_CODIGO+EE_AGENCIA+EE_CONTA) ))
+
+	SF2->( dbSetOrder(1) )
+	SF2->( dbSeek(FWxFilial("SF2") + SE1->(E1_NUM + E1_PREFIXO)) )
+	
+	SE4->( dbSetOrder(1) )
+	SE4->( dbSeek(xFilial("SE4") + SF2->F2_COND) )
+	
+	// Calculo do fator de Vencimento para atender ao Banco do Brasil
+//	_cFatorVcto := Str((SE1->E1_VENCTO - Ctod("07/10/1997")),4)
+	_cFatorVcto := Str((SE1->E1_VENCREA - Ctod("07/10/1997")),4) //FM 27/09/2023
+	_aTitSafra[_nCont,24] := _cFatorVcto
+	
+	_nVlrBol  := _aTitSafra[_nCont,3] //SE1->E1_VALOR
+	_nVlrAbat := SE1->E1_DECRESC
+	
+	_cNome_Bco := "BANCO SAFRA S.A"
+	_cCod_Comp := "|422-7|"
+	_cAg_Conta := "04800/005840731"
+	_cCarteira := "01"
+	_cAceite   := "N"
+
+	// Codigo de Barras
+	_cCodBarras := "422"                                        // Banco Beneficiário do boleto 1   3 03 Num “422”
+	_cCodBarras += "9"                                          // Código da moeda              4   4 01 Num “9”
+	_cCodBarras += ""//BarraDV()                                // DAC - auto conferência       5   5 01 Num
+	_cCodBarras += _cFatorVcto                   				// Data de vencimento do título 6   9 04 Num DV
+	_cCodBarras += StrZero(Int(Round(_nVlrBol*100,2)),10)     	// Valor do boleto              10 19 10 Num Valor do Boleto com zeros a esquerda
+	_cCodBarras += "7"                                          // Sistema                      20 20 01 Num “7” (Dígito do Bco Safra)
+	_cCodBarras += Left(AllTrim(_cag_conta),5)                  // Agência Cliente              21 25 05 Num Nº Agência do cliente Safra
+	_cCodBarras += Right(AllTrim(_cag_conta),9)                 // Conta Cliente                26 34 09 Num Nº Conta do cliente Safra
+	_cCodBarras += _cNumboleta                                  // Nosso Número                 35 43 09 Num Nosso Número
+	_cCodBarras += "2"                                          // Tipo cobrança                44 44 01 Num “2” (Cobrança registrada)
+
+	DgVer422(_cCodBarras)
+	
+	_cCodBarras := Substr(_cCodBarras,1,4)+_cB_DVCam+Substr(_cCodBarras,5,40)
+			
+	_aTitSafra[_nCont,25] := _cCodBarras
+
+	// linha digitável
+	_cB_Campo := "422"           								// Banco Beneficiário do boleto 1   3 03 Num “422”
+	_cB_Campo += "9"                                            // Código da moeda              4   4 01 Num 9 real 
+	_cB_Campo += "7"           								    // Sistema                      5   5 01 Num “7” (Dígito do Bco Safra)
+	_cB_Campo += Left(AllTrim(_cag_conta),4)                    // Campo livre                  6   9 04 Num 4 primeiros dígitos do nº da agência
+	_cB_Campo += yModulo10(_cB_Campo)                            // Dígito Verificador           10 10 01 Num DV 
+	_cB_Campo += Subs(AllTrim(_cag_conta),5,1)                  // Campo livre                  11 11 01 Num Último dígito do número da agencia
+	_cB_Campo += Right(AllTrim(_cag_conta),9)                   // Campo livre                  12 20 09 Num Código do cliente
+	_cB_Campo += yModulo10(Subs(AllTrim(_cB_Campo),11,20))       // Dígito Verificador           21 21 01 Num DV
+	_cB_Campo += _cNumboleta                                    // Campo livre                  22 30 09 Num Nosso Número
+	_cB_Campo += '2'                         					// Campo livre                  31 31 01 Num Tipo de cobrança
+	_cB_Campo += yModulo10(Subs(AllTrim(_cB_Campo),22,31))       // Dígito Verificador           32 32 01 Num DV
+	_cB_Campo += _cB_DVCam                 					    // Dac - auto conferência       33 33 01 Num Dígito de auto conferência
+	_cB_Campo += _cFatorVcto                   				    // Data de Vencimento do Boleto 34 37 04 Num Data Vencimento do boleto
+	_cB_Campo += StrZero(Int(Round(_nVlrBol*100,2)),10)     	// Valor do boleto 38 47 10 Num Valor do boleto
+
+	RestArea1(aArea)
+
+Return lRet
+
+/*/{Protheus.doc} nomeStaticFunction
+	Calcula DV código barras Safra
+	@type  Static Function
+	@author Fernando Macieira
+	@since 20/07/2023
+	@version version
+	@param param_name, param_type, param_descr
+	@return return_var, return_type, return_description
+	@example
+	(examples)
+	@see (links_or_references)
+/*/
+Static Function DgVer422(cCodBarra)
+
+	Local _nRSANT := 0
+	
+	nR01 := Val(Substr(cCodBarra,01,1)) * 4
+	nR02 := Val(Substr(cCodBarra,02,1)) * 3
+    nR03 := Val(Substr(cCodBarra,03,1)) * 2
+    nR04 := Val(Substr(cCodBarra,04,1)) * 9
+    nR05 := Val(Substr(cCodBarra,05,1)) * 8
+    nR06 := Val(Substr(cCodBarra,06,1)) * 7
+    nR07 := Val(Substr(cCodBarra,07,1)) * 6
+    nR08 := Val(Substr(cCodBarra,08,1)) * 5
+    nR09 := Val(Substr(cCodBarra,09,1)) * 4
+    nR10 := Val(Substr(cCodBarra,10,1)) * 3
+    nR11 := Val(Substr(cCodBarra,11,1)) * 2
+    nR12 := Val(Substr(cCodBarra,12,1)) * 9
+    nR13 := Val(Substr(cCodBarra,13,1)) * 8 
+    nR14 := Val(Substr(cCodBarra,14,1)) * 7 
+    nR15 := Val(Substr(cCodBarra,15,1)) * 6
+    nR16 := Val(Substr(cCodBarra,16,1)) * 5 
+    nR17 := Val(Substr(cCodBarra,17,1)) * 4 
+    nR18 := Val(Substr(cCodBarra,18,1)) * 3
+    nR19 := Val(Substr(cCodBarra,19,1)) * 2
+    nR20 := Val(Substr(cCodBarra,20,1)) * 9 
+    nR21 := Val(Substr(cCodBarra,21,1)) * 8
+    nR22 := Val(Substr(cCodBarra,22,1)) * 7
+    nR23 := Val(Substr(cCodBarra,23,1)) * 6 
+    nR24 := Val(Substr(cCodBarra,24,1)) * 5 
+    nR25 := Val(Substr(cCodBarra,25,1)) * 4 
+    nR26 := Val(Substr(cCodBarra,26,1)) * 3 
+    nR27 := Val(Substr(cCodBarra,27,1)) * 2 
+    nR28 := Val(Substr(cCodBarra,28,1)) * 9 
+    nR29 := Val(Substr(cCodBarra,29,1)) * 8 
+    nR30 := Val(Substr(cCodBarra,30,1)) * 7 
+    nR31 := Val(Substr(cCodBarra,31,1)) * 6 
+    nR32 := Val(Substr(cCodBarra,32,1)) * 5
+    nR33 := Val(Substr(cCodBarra,33,1)) * 4 
+    nR34 := Val(Substr(cCodBarra,34,1)) * 3 
+    nR35 := Val(Substr(cCodBarra,35,1)) * 2 
+    nR36 := Val(Substr(cCodBarra,36,1)) * 9 
+    nR37 := Val(Substr(cCodBarra,37,1)) * 8 
+    nR38 := Val(Substr(cCodBarra,38,1)) * 7 
+    nR39 := Val(Substr(cCodBarra,39,1)) * 6 
+    nR40 := Val(Substr(cCodBarra,40,1)) * 5
+    nR41 := Val(Substr(cCodBarra,41,1)) * 4 
+    nR42 := Val(Substr(cCodBarra,42,1)) * 3 
+    nR43 := Val(Substr(cCodBarra,43,1)) * 2 
+    
+   _nRSANT := nR01 + nR02 + nR03 + nR04 + nR05 + nR06 + nR07 + nR08 + nR09 + nR10 + nR11 + nR12+;
+  	          nR13 + nR14 + nR15 + nR16 + nR17 + nR18 + nR19 + nR20 + nR21 + nR22 + nR23 + nR24+;
+  	          nR25 + nR26 + nR27 + nR28 + nR29 + nR30 + nR31 + nR32 + nR33 + nR34 + nR35 + nR36+;
+  	          nR37 + nR38 + nR39 + nR40 + nR41 + nR42 + nR43
+  	                                                               
+   _nResto := ( _nRSANT % 11 ) //calcula para achar o resto da divisão
+   
+   _nResto := 11-_nResto       //subtrair o resto da divisao por 11
+   
+   If _nResto == 0 .or. _nResto > 9  //se _nResto igual a zerou ou maior que 9, o DV será um a 1
+ 		_cB_DVCam := "1"
+   Else
+    	_cB_DVCam := Str(_nResto,1)
+   Endif    
+        
+Return _cB_DVCam   
+
+/*/{Protheus.doc} nomeStaticFunction
+	Impressão boleto Safra
+	@type  Static Function
+	@author FWNM
+	@since 20/07/2023
+	@version version
+	@param param_name, param_type, param_descr
+	@return return_var, return_type, return_description
+	@example
+	(examples)
+	@see (links_or_references)
+/*/
+Static Function ImpSafra(_aTitSafra)
+	
+	Local i
+	Local aAreaSM0 := SM0->(GetArea())
+	
+	Private cNome     := ALLTRIM(Posicione("SM0",1,cEmpAnt+'01',"M0_NOMECOM")) + ', ' 
+	Private cEndereco := ALLTRIM(Posicione("SM0",1,cEmpAnt+'01',"M0_ENDENT"))  + ', ' 
+	Private cBairro   := ALLTRIM(Posicione("SM0",1,cEmpAnt+'01',"M0_BAIRENT")) + ', ' 
+	Private cCidade   := ALLTRIM(Posicione("SM0",1,cEmpAnt+'01',"M0_CIDENT"))  + ', ' 
+	Private cCNPJ     := ALLTRIM(Posicione("SM0",1,cEmpAnt+'01',"M0_CGC"))
+
+	PRIVATE oFont1 		:= TFont():New("Arial"      	 	,09,08,,.F.,,,,,.F.)   	// Titulos dos Campos
+	PRIVATE oFont1A		:= TFont():New("Arial"      	 	,09,08,,.F.,,,,,.F.)   	// Titulos dos Campos
+	PRIVATE oFontA		:= TFont():New("Arial"      	 	,09,11,,.T.,,,,,.F.)   	// Nome do Banco
+	PRIVATE oFont2 		:= TFont():New("Arial"      	 	,09,10,,.F.,,,,,.F.)   	// Conteudo dos Campos
+	PRIVATE oFont3Bold 	:= TFont():New("Arial Black"	 	,09,18,,.T.,,,,,.F.)   	// Nome do Banco
+	PRIVATE oFont4Bold 	:= TFont():New("Arial Black"	 	,09,13,,.T.,,,,,.F.)   	// Nome do Banco
+	PRIVATE oFont4 		:= TFont():New("Arial"      	 	,09,12,,.T.,,,,,.F.)   	// Dados do Recibo de Entrega
+	PRIVATE oFont5 		:= TFont():New("Arial"      	 	,09,18,,.T.,,,,,.F.)	// Codigo de Compensação do Banco
+	PRIVATE oFont6 		:= TFont():New("Arial"          	,09,14,,.T.,,,,,.F.)	// Codigo de Compensação do Banco
+	PRIVATE oFont7 		:= TFont():New("Arial"          	,09,10,,.F.,,,,,.F.)   	// Conteudo dos Campos em Negrito
+	PRIVATE oFont8 		:= TFont():New("Arial"          	,09,09,,.F.,,,,,.F.)	// Dados do Cliente
+	PRIVATE oFont9 		:= TFont():New("Times New Roman"    ,09,15,,.T.,,,,,.F.)	// Linha Digitavel
+	PRIVATE oFont10Bold	:= TFont():New("Times New Roman"    ,09,18,,.T.,,,,,.F.)	// Nome banco HSBC - critica 270509 
+	PRIVATE oFont8Bold  := TFont():New("Arial"              ,09,14,,.T.,,,,,.F.) // MENSAGEM QDO FOR GMSBS
+
+	oFont06  := TFont():New( "Arial",,06,,.F.,,,,,.F. )
+	oFont06B := TFont():New( "Arial",,06,,.T.,,,,,.F. )
+	oFont07  := TFont():New( "Arial",,07,,.F.,,,,,.F. )
+	oFont07B := TFont():New( "Arial",,07,,.T.,,,,,.F. )
+	oFont08  := TFont():New( "Arial",,08,,.F.,,,,,.F. )                          	
+	oFont08B := TFont():New( "Arial",,08,,.T.,,,,,.F. )
+	oFont09  := TFont():New( "Arial",,09,,.F.,,,,,.F. )
+	oFont09B := TFont():New( "Arial",,09,,.T.,,,,,.F. )
+	oFont10  := TFont():New( "Arial",,10,,.F.,,,,,.F. )
+	oFont10B := TFont():New( "Arial",,10,,.T.,,,,,.F. )
+	oFont11  := TFont():New( "Arial",,11,,.F.,,,,,.F. )
+	oFont11B := TFont():New( "Arial",,11,,.T.,,,,,.F. )
+	oFont12  := TFont():New( "Arial",,12,,.F.,,,,,.F. )
+	oFont12B := TFont():New( "Arial",,12,,.T.,,,,,.F. )
+	oFont13  := TFont():New( "Arial",,13,,.F.,,,,,.F. )
+	oFont13B := TFont():New( "Arial",,13,,.T.,,,,,.F. )
+	oFont14  := TFont():New( "Arial",,14,,.F.,,,,,.F. )
+	oFont14B := TFont():New( "Arial",,14,,.T.,,,,,.F. )
+	oFont15  := TFont():New( "Arial",,15,,.F.,,,,,.F. )
+	oFont15B := TFont():New( "Arial",,15,,.T.,,,,,.F. )
+	oFont16  := TFont():New( "Arial",,16,,.F.,,,,,.F. )
+	oFont16B := TFont():New( "Arial",,16,,.T.,,,,,.F. )
+	oFont17  := TFont():New( "Arial",,17,,.F.,,,,,.F. )
+	oFont17B := TFont():New( "Arial",,17,,.T.,,,,,.F. )
+	oFont18  := TFont():New( "Arial",,18,,.F.,,,,,.F. )
+	oFont18B := TFont():New( "Arial",,18,,.T.,,,,,.F. )
+	oFont19  := TFont():New( "Arial",,19,,.F.,,,,,.F. )
+	oFont19B := TFont():New( "Arial",,19,,.T.,,,,,.F. )
+	oFont20  := TFont():New( "Arial",,20,,.F.,,,,,.F. )
+	oFont20B := TFont():New( "Arial",,20,,.T.,,,,,.F. )
+	oFont21  := TFont():New( "Arial",,21,,.F.,,,,,.F. )
+	oFont21B := TFont():New( "Arial",,21,,.T.,,,,,.F. )
+	oFont22  := TFont():New( "Arial",,22,,.F.,,,,,.F. )
+	oFont22B := TFont():New( "Arial",,22,,.T.,,,,,.F. )
+	oFont23  := TFont():New( "Arial",,23,,.F.,,,,,.F. )
+	oFont23B := TFont():New( "Arial",,23,,.T.,,,,,.F. )
+	oFont24  := TFont():New( "Arial",,24,,.F.,,,,,.F. )
+	oFont24B := TFont():New( "Arial",,24,,.T.,,,,,.F. )
+	oFont25  := TFont():New( "Arial",,25,,.F.,,,,,.F. )
+	oFont25B := TFont():New( "Arial",,25,,.T.,,,,,.F. )
+	oFont26  := TFont():New( "Arial",,26,,.F.,,,,,.F. )
+	oFont26B := TFont():New( "Arial",,26,,.T.,,,,,.F. )
+	oFont27  := TFont():New( "Arial",,27,,.F.,,,,,.F. )
+	oFont27B := TFont():New( "Arial",,27,,.T.,,,,,.F. )
+	oFont28  := TFont():New( "Arial",,28,,.F.,,,,,.F. )
+	oFont28B := TFont():New( "Arial",,28,,.T.,,,,,.F. )
+	oFont29  := TFont():New( "Arial",,29,,.F.,,,,,.F. )
+	oFont29B := TFont():New( "Arial",,29,,.T.,,,,,.F. )
+	oFont30  := TFont():New( "Arial",,30,,.F.,,,,,.F. )
+	oFont30B := TFont():New( "Arial",,30,,.T.,,,,,.F. )
+
+	cCNPJ := transform(cCNPJ,"@R 99.999.999/9999-99")
+
+	_cNome_Bco := "BANCO SAFRA S.A"
+	_cCod_Comp := "|422-7|"
+	_cAg_Conta := "04800/005840731"
+	_cCarteira := "01"
+	_cAceite   := "N"
+
+	oPrint := TMSPrinter():New()                                                               
+	oPrint:setup()
+
+	For i:=1 to Len(_aTitSafra)
+
+		SE1->( dbSetOrder(1) )
+		SE1->( dbSeek(FWxFilial("SE1")+_aTitSafra[i,1]) )
+
+		SA1->( dbSetOrder(1) )
+		SA1->( dbSeek(FWxFilial("SA1")+SE1->(E1_CLIENTE+E1_LOJA)) )
+		
+		oPrint:SETPAPERSIZE(9) // <==== ajuste para papel A4
+		oPrint:StartPage()
+
+		// Comprovante de entrega - Canhoto
+		_nPosHor := 01
+		_nLinha  := 01
+		_nEspLin := 84
+
+		// Posicionamento Vertical
+		_nPosVer := 10
+
+		// Posicionamento do Texto Dentro do Box
+		_nTxtBox := 05
+
+		///////////////////////////////////////////////////////////////
+	
+		// Box Cedente
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+25,_nTxtBox+0140,"Safra S.A",ofont14B,100)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin),_nTxtBox+0366,"|422-7|",ofont22B,100)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+10,_nPosVer+1650,"Comprovante de Entrega",ofont14B,100)
+		_nLinha  := _nLinha + 1
+		oPrint:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0830)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Cedente",ofont08,100)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin+30)+_nTxtBox,_nPosVer+0010,SM0->M0_NOMECOM,ofont08,100)
+
+		// Box Agencia/Codigo Cedente
+		oPrint:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0830,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1180)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0840,"Agência/Código Cedente",ofont08,100)          
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin+30)+_nTxtBox,_nPosVer+0850,SEE->EE_AGENCIA + "/" + SEE->EE_CONTA,ofont08B,100)
+
+		// Box Motivos nao entrega
+		oPrint:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1180,_nPosHor+(_nLinha*_nEspLin)+(2*_nEspLin),_nPosVer+2230)
+		oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1290,"Motivos de não entrega(para uso da empresa entregadora)",ofont08,100)
+
+		oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin+0050)+_nTxtBox,_nPosVer+1210,"( )Mudou-se",ofont08,100)
+		oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin+0050)+_nTxtBox,_nPosVer+1490,"( )Ausente",ofont08,100)
+		oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin+0050)+_nTxtBox,_nPosVer+1820,"( )Não existe n. indicado",ofont08,100)
+
+		oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin+0100)+_nTxtBox+0025,_nPosVer+1210,"( )Recusado",ofont08,100)
+		oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin+0100)+_nTxtBox+0025,_nPosVer+1490,"( )Não Procurado",ofont08,100)
+		oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin+0100)+_nTxtBox+0025,_nPosVer+1820,"( )Falecido",ofont08,100)
+
+		oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin+0150)+_nTxtBox+0050,_nPosVer+1210,"( )Desconhecido",ofont08,100)
+		oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin+0150)+_nTxtBox+0050,_nPosVer+1490,"( )Endereço Insuficiente",ofont08,100)
+		oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin+0150)+_nTxtBox+0050,_nPosVer+1820,"( )Outros (anotar no verso)",ofont08,100)
+
+		// Box Sacado
+		_nLinha  += 1
+		oPrint:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0830)
+		oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Sacado",ofont08,100)
+		oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0010,_aTitSafra[i,09],ofont08,100)
+
+		// Box Nosso Numero
+		oPrint:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0830,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1180)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0840,"Nosso Número",ofont08,100)
+		oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0860,SE1->E1_NUMBCO,ofont08B,100)
+
+		// Box Vencimento
+		_nLinha  += 1
+		oPrint:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0200)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Vencimento",ofont08,100)
+	//	oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0030,DtoC(SE1->E1_VENCTO),ofont08B,100)
+		oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0030,DtoC(SE1->E1_VENCREA),ofont08B,100) //FM 27/09/2023
+
+		// Box Numero do Documento
+		oPrint:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0200,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0520)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0210,"N. do Documento",ofont08,100)
+		
+		If !Empty(MV_PAR07)
+			oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0300,TRIM(MV_PAR07),ofont08,100)
+		Else
+			oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0300,SE1->(E1_PREFIXO+E1_NUM+E1_PARCELA),ofont08,100)
+		Endif	
+
+		// Box Especie Moeda
+		oPrint:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0520,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0830)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0530,"Espécie Moeda",ofont08,100)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0650,"R$",ofont08,100)
+
+		// Box Valor do Documento
+		oPrint:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0830,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1180)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0840,"Valor do Documento",ofont08,100)
+		oPrint:Say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox+30,_nPosVer+0940,transform(_aTitSafra[i,3]+_aTitSafra[i,23],"@E 999,999,999.99"),ofont08B,100)
+
+		// Box Recebimento bloqueto
+		_nLinha  += 1
+		oPrint:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer,_nPosHor+(_nLinha*_nEspLin),_nPosVer+0340)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0010,"Recebi(emos) o bloqueto",ofont08,100)
+
+		// Box Data
+		oPrint:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0340,_nPosHor+(_nLinha*_nEspLin),_nPosVer+560)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0350,"Data",ofont08,100)
+
+		// Box Assinatura
+		oPrint:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+0560,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1180)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+0570,"Assinatura",ofont08,100)
+
+		// Box Data
+		oPrint:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1180,_nPosHor+(_nLinha*_nEspLin),_nPosVer+1520)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1190,"Data",ofont08,100)
+
+		// Box Entregador
+		oPrint:Box(_nPosHor+((_nLinha-1)*_nEspLin),_nPosVer+1520,_nPosHor+(_nLinha*_nEspLin),_nPosVer+2230)
+		oPrint:say(_nPosHor+((_nLinha-1)*_nEspLin)+_nTxtBox,_nPosVer+1530,"Entregador",ofont08,100)
+
+		//////////////////////////////////////////////////////////////////
+
+		// Primeira Parte da Boleta
+		oPrint:Say(1135,0100,_cNome_Bco,oFont4Bold,100)
+		oPrint:say(1150,0700,_cCod_Comp,oFont5,100)	
+		
+		oPrint:Say(1160,1700,"RECIBO DO PAGADOR",oFont4,100)
+		
+		oPrint:Box(1230,0100,1310,1500)
+		oPrint:Box(1230,1500,1310,2200)
+		oPrint:Box(1310,0100,1390,1500)
+		oPrint:Box(1310,1500,1390,2200)
+		
+		oPrint:box(1390,0100,1470,0350)	// Data Documento
+		oPrint:box(1390,0350,1470,0700)	// Numero Documento
+		oPrint:box(1390,0700,1470,0850)	// Esp. Doc.
+		oPrint:box(1390,0850,1470,1060) // Aceite
+		oPrint:box(1390,1060,1470,1500)	// Data Proces.
+		oPrint:box(1390,1500,1470,2200)	// Nosso Numero  
+		
+		oPrint:box(1470,0100,1550,0350)	// Uso do Banco
+		oPrint:box(1470,0350,1550,0400)	// CIP	
+		oPrint:box(1470,0400,1550,0500)	// Carteira
+		oPrint:box(1470,0500,1550,0650)	// Especie
+		oPrint:box(1470,0650,1550,1060)	// Quantidade
+		oPrint:box(1470,1060,1550,1500)	// Valor
+		oPrint:box(1470,1500,1550,2200)	// Valor Documento	
+			
+		oPrint:Box(1550,0100,1950,1500)
+		oPrint:Box(1550,1500,1630,2200)
+		oPrint:Box(1630,1500,1710,2200)
+		oPrint:Box(1710,1500,1790,2200)
+		oPrint:Box(1790,1500,1870,2200)
+		oPrint:Box(1870,1500,1950,2200)
+		oPrint:Box(1950,0100,2150,2200)
+		
+		oPrint:Say(1230,0120,"Local de Pagamento",oFont1,100)
+		oPrint:Say(1230,1520,"Vencimento",oFont1,100)
+		oPrint:Say(1260,0120,"PAGAVEL EM QUALQUER BANCO DO SISTEMA DE COMPENSACAO",oFont2,100)
+		
+	//	_dDtAux1 := DtoS(SE1->E1_VENCTO)
+		_dDtAux1 := DtoS(SE1->E1_VENCREA) //FM 27/09/2023
+		_dDtAux2 := SubStr(_dDtAux1,7,2) + "/" + SubStr(_dDtAux1,5,2) + "/" + SubStr(_dDtAux1,1,4)
+		oPrint:Say(1260,1930,_dDtAux2,oFont9,100)
+		
+		oPrint:Say(1310,0120,"Beneficiario",oFont1,100)
+		oPrint:Say(1310,1520,"Agência/Código Beneficiario",oFont1,100)
+		
+		oPrint:say(1310,0260, SUBSTRING(cNome,1,15) + "                  CNPJ: "+cCNPJ ,oFont2,100)
+		oPrint:say(1345,0120,cEndereco+" "+cBairro+" "+cCidade,oFont1,100) 
+		oPrint:say(1340,1700,_cAg_Conta,oFont7,100)
+			
+		oPrint:Say(1390,0120,"Dt Documento",oFont1,100)
+		oPrint:Say(1390,0360,"Número do Documento",oFont1,100)
+		oPrint:Say(1390,0720,"Esp.Doc.",oFont1,100)
+		oPrint:Say(1390,0870,"Aceite",oFont1,100)
+		oPrint:Say(1390,1080,"Data Processamento",oFont1,100)
+		
+		oPrint:Say(1390,1520,"Nosso Número",oFont1,100)
+		
+		oPrint:Say(1420,0120,DtoC(SE1->E1_EMISSAO),oFont2,100)
+		oPrint:Say(1420,0370,AllTrim(_aTitSafra[i,21]),oFont2,100) // Numero do Documento
+		//oPrint:Say(1420,0370,AllTrim(SE1->E1_PREFIXO)+"-"+AllTrim(SE1->E1_NUM)+If(!Empty(SE1->E1_PARCELA),"-"+SE1->E1_PARCELA,""),oFont2,100) // Numero do Documento
+		
+		//correcao da data para dois digitos
+		
+		oPrint:Say(1420,0720,"DM",oFont2,100)
+		oPrint:Say(1420,0870,_cAceite,oFont2,100)
+		oPrint:Say(1420,1090,DtoC(msDate()),oFont2,100)
+		
+		oPrint:say(1420,1700,ALLTRIM(SE1->E1_NUMBCO),oFont7,100)  		
+				
+		oPrint:say(1470,0120,"Data de Operação",oFont1,100)
+		oPrint:say(1470,0360,"CIP",oFont1,100)
+		oPrint:say(1470,0405,"Carteira",oFont1,100)
+		oPrint:say(1470,0520,"Espécie",oFont1,100)
+		oPrint:say(1470,0670,"Quantidade",oFont1,100)
+		oPrint:say(1470,1090,"Valor",oFont1,100)	
+		oPrint:Say(1470,1520,"(=) Valor do Documento",oFont1,100)
+		
+		oPrint:say(1500,120,Dtoc(msDate()),oFont2,100)
+		oPrint:say(1500,350,"130",oFont2,100)
+		oPrint:say(1500,410,_cCarteira,oFont2,100)
+		oPrint:say(1500,520,"R$",oFont2,100)	
+		oPrint:Say(1500,1900,Transform(_aTitSafra[i,3]+_aTitSafra[i,23],"@E 999,999,999.99"),oFont9,100)
+
+		oPrint:Say(1550,120,"Instruções",oFont1,100)
+		oPrint:Say(1550,120,"                 " + "(Todas as informações deste bloqueto são de exclusiva responsabilidade do Beneficiario)",oFont1A,100)
+		
+		oPrint:Say(1550,1520,"(-) Desconto/Abatimento",oFont1,100)
+		oPrint:Say(1580,1900,Transform(SE1->E1_DECRESC,"@E 999,999,999.99"),oFont9,100)
+		
+		oPrint:Say(1630,1520,"(-) Outras Deduções",oFont1,100)
+		oPrint:Say(1710,1520,"(+) Mora/Multa",oFont1,100)
+		
+		oPrint:Say(1790,1520,"(+) Outros Acréscimos",oFont1,100)
+		
+		oPrint:Say(1870,1520,"(=) Valor Cobrado",oFont1,100)
+		oPrint:Say(1900,1900,Transform(_aTitSafra[i,3],"@E 999,999,999.99"),oFont9,100)
+
+		oPrint:Say(1950,0120,"Pagador",oFont1,100)
+		oPrint:Say(1970,0250,SA1->A1_NOME,oFont8,100)
+		oPrint:Say(1970,1500,Transform(SA1->A1_CGC,"@R 99.999.999/9999-99"),oFont8,100)
+		oPrint:Say(2010,0250,SA1->A1_END+" "+SA1->A1_BAIRRO,oFont8,100)
+		oPrint:Say(2050,0250,SA1->A1_CEP+" "+SA1->A1_MUN+SA1->A1_EST,oFont8,100)
+		oPrint:Say(2100,0120,"Beneficiário final",oFont1,100)
+		
+		oPrint:Say(2100,1520,"Cód.Baixa",oFont1,100)
+		oPrint:Say(2095,1720,"Autenticação Mecânica",oFont1,100)
+		
+		oPrint:Say(2140,0001,replicate(".",1900),oFont1,100)
+		
+		// Impressao das Instrucoes
+		
+		_nLinInst := 1580
+		_nLinInst += 50
+		_nLinInst += 50
+		
+		nValMora := ( _aTitSafra[i,3] * ( 5 / 100) ) / 30 	
+		oPrint:Say(_nLinInst,0120,"Não dispensar mora de R$ " + Alltrim(Transform(nValMora,"@E 999,999,999.99")) + " por dia de atraso" ,oFont8,100)
+		_nLinInst += 00050
+
+		oPrint:Say(_nLinInst,0120,"Após o vencimento cobrar multa de R$ " + Alltrim(Transform(_aTitSafra[i,3] * (2/100),"@E 999,999.99")),oFont8,100)
+		_nLinInst += 00050
+			
+		//oPrint:Say(_nLinInst,0120,MV_PAR06,oFont8,100)	// Instruções de parametro
+		_nLinInst += 50
+		If !Empty(MV_PAR07)
+			oPrint:Say(_nLinInst,0120,"Referente notas " + MV_PAR07,oFont8,100)   	// Instruções de parametro
+		EndIf
+		oPrint:Say(_nLinInst+40,0120,"Referente bilhete " + _aTitSafra[i,1],oFont8,100)   	// Instruções de parametro
+
+		//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		//Segunda parte da Boleta
+		//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		
+		//Montar a Linha Digitavel da Boleta
+		MontaLinha(i)
+		
+		//Segunda Parte da Boleta
+		oPrint:Say(002195,0100,_cNome_Bco,oFont4Bold,100) //05/12/2017  
+		oPrint:say(002210,0570,_cCod_Comp,oFont5,100)		
+		
+		//Impressão da Linha Digitavel
+		oPrint:Say(002220,0770,_cLineDig,oFont9,080)
+		
+		oPrint:Box(002290,0100,2370,1500)
+		oPrint:Box(002290,1500,2370,2200)
+		oPrint:Box(002370,0100,2450,1500)
+		oPrint:Box(002370,1500,2450,2200)
+		
+		oPrint:box(002450,0100,2530,0350)	
+		oPrint:box(002450,0350,2530,0700)
+		oPrint:box(002450,0700,2530,0850)
+		oPrint:box(002450,0850,2530,1060)
+		oPrint:box(002450,1060,2530,1500)
+		oPrint:box(002450,1500,2530,2200)
+		oPrint:box(002530,0100,2610,0350)
+		oPrint:box(002530,0350,2610,0400)	
+		oPrint:box(002530,0400,2610,0500)
+		oPrint:box(002530,0500,2610,0650)
+		oPrint:box(002530,0650,2610,1060)
+		oPrint:box(002530,1060,2610,1500)
+		oPrint:box(002530,1500,2610,2200)	
+			
+		oPrint:Box(002610,0100,3010,1500)
+		oPrint:Box(002610,1500,2690,2200)
+		oPrint:Box(002690,1500,2770,2200)
+		oPrint:Box(002770,1500,2850,2200)
+		oPrint:Box(002850,1500,2930,2200)
+		oPrint:Box(002930,1500,3010,2200)
+		oPrint:Box(003010,0100,3210,2200)
+		
+		oPrint:Say(002290,0120,"Local de Pagamento",oFont1,100)
+		oPrint:Say(002290,1520,"Vencimento",oFont1,100)
+		
+		oPrint:Say(002320,0120,"PAGAVEL EM QUALQUER BANCO DO SISTEMA DE COMPENSACAO",oFont2,100)
+		
+	//	_dDtAux1 := DtoS(SE1->E1_VENCTO)
+		_dDtAux1 := DtoS(SE1->E1_VENCREA)//FM 27/09/2023
+		_dDtAux2 := SubStr(_dDtAux1,7,2) + "/" + SubStr(_dDtAux1,5,2) + "/" + SubStr(_dDtAux1,1,4)
+		oPrint:Say(002320,1930,_dDtAux2,oFont9,100)
+		
+		oPrint:Say(002370,0120,"Beneficiario",oFont1,100)
+		
+		oPrint:Say(002370,1520,"Agência/Código Beneficiario",oFont1,100)
+		
+		oPrint:say(002370,0260,SUBSTRING(cNome,1,15) + "                  CNPJ: "+cCNPJ ,oFont2,100)
+		oPrint:say(002405,0120,cEndereco+" "+cBairro+" "+cCidade,oFont1,100) 
+
+		oPrint:say(002400,1700,_cAg_Conta,oFont7,100)
+			
+		oPrint:say(002450,0120,"Dt Documento",oFont1,100)
+		oPrint:say(002450,0370,"Número do Documento",oFont1,100)
+		oPrint:say(002450,0720,"Esp.Doc.",oFont1,100)
+		oPrint:say(002450,0870,"Aceite",oF`ont1,100)
+		oPrint:say(002450,1080,"Data Movimento",oFont1,100)	
+		
+		oPrint:Say(002450,1520,"Nosso Número",oFont1,100)
+		
+		oPrint:Say(002480,0120,DtoC(SE1->E1_EMISSAO),oFont2,100)
+		oPrint:Say(002480,0370,AllTrim(_aTitSafra[i,21]),oFont2,100) // Numero do Documento
+		//oPrint:Say(002480,0370,AllTrim(SE1->E1_PREFIXO) + "-" + AllTrim(SE1->E1_NUM) + If(!Empty(SE1->E1_PARCELA),"-" +SE1->E1_PARCELA,""),oFont2,100) // Numero do Documento
+
+		oPrint:Say(002480,0720,"DM",oFont2,100)
+		oPrint:Say(002480,0870,_cAceite,oFont2,100)
+		oPrint:Say(002480,1090,Dtoc(msDate()),oFont2,100)
+
+		oPrint:say(2480,1700, ALLTRIM(SE1->E1_NUMBCO),oFont7,100)   		
+
+		oPrint:say(2530,0120,"Data de OPeração",oFont1,100)
+		oPrint:say(2530,0360,"CIP",oFont1,100)
+		oPrint:say(2530,0405,"Carteira",oFont1,100)
+		oPrint:say(2530,0520,"Espécie",oFont1,100)
+		oPrint:say(2530,0670,"Quantidade",oFont1,100)
+		oPrint:say(2530,1090,"Valor",oFont1,100) 	
+		
+		oPrint:Say(002530,1520,"(=) Valor do Documento",oFont1,100)
+		
+		oPrint:say(2560,120,Dtoc(msDate()),oFont2,100)
+		oPrint:say(2560,350,"130",oFont2,100)
+		oPrint:say(2560,410,_cCarteira,oFont2,100)
+		oPrint:say(2560,520,"R$",oFont2,100)	
+		
+		oPrint:Say(002560,1900,transform(_aTitSafra[i,3]+_aTitSafra[i,23],"@E 999,999,999.99"),oFont9,100)
+		
+		oPrint:Say(002610,0120,"Instruções",oFont1,100)
+		oPrint:Say(002610,0120,"               "+ "(Todas as informações deste bloqueto são de exclusiva responsabilidade do Beneficiario)",oFont1A,100)
+		
+		oPrint:Say(002610,1520,"(-) Desconto/Abatimento",oFont1,100)
+		oPrint:Say(002640,1900,Transform(SE1->E1_DECRESC,"@E 999,999,999.99"),oFont9,100)
+
+		oPrint:Say(002770,1520,"(+) Mora/Multa",oFont1,100)
+		oPrint:Say(002690,1520,"(-) Outras Deduções",oFont1,100)
+		
+		oPrint:Say(002850,1520,"(+) Outros Acréscimos",oFont1,100)
+		
+		oPrint:Say(002930,1520,"(=) Valor Cobrado",oFont1,100)
+		oPrint:Say(002960,1900,Transform(_aTitSafra[i,3],"@E 999,999,999.99"),oFont9,100)
+
+		oPrint:Say(003010,0120,"Pagador",oFont1,100)
+		oPrint:Say(003040,0250,SA1->A1_NOME,oFont8,100)
+		oPrint:Say(003040,1500,transform(SA1->A1_CGC,"@R 99.999.999/9999-99"),oFont8,100)
+		oPrint:Say(003070,0250,SA1->A1_END+" "+SA1->A1_BAIRRO,oFont8,100)
+		oPrint:Say(003100,0250,SA1->A1_CEP+" "+SA1->A1_MUN+SA1->A1_EST,oFont8,100)
+		oPrint:Say(003170,0120,"Beneficiário final",oFont1,100)
+		
+		oPrint:Say(003170,1520,"Cód.Baixa",oFont1,100)
+		oPrint:Say(003170,1750,"Autenticação Mecânica",oFont1,100)
+		oPrint:Say(003210,1730,"FICHA DE COMPENSAÇÃO",oFont2,100)
+		
+		// Impressao das Instruções
+		
+		_nLinInst := 2640
+		_nLinInst += 50
+		_nLinInst += 50
+		
+		nValMora := ( _aTitSafra[i,3] * ( 5 / 100) ) / 30 	
+		oPrint:Say(_nLinInst,0120,"Não dispensar mora de R$ " + Alltrim(Transform(nValMora,"@E 999,999,999.99")) + " por dia de atraso" ,oFont8,100)
+		_nLinInst += 00050
+
+		oPrint:Say(_nLinInst,0120,"Após o vencimento cobrar multa de R$ " + Alltrim(Transform(_aTitSafra[i,3] * (2/100),"@E 999,999.99")),oFont8,100)
+		_nLinInst += 00050
+			
+		//
+		//oPrint:Say(_nLinInst,0120,MV_PAR06,oFont8,100)	// Instruções de parametro
+		_nLinInst += 50
+		If !Empty(MV_PAR07)
+			oPrint:Say(_nLinInst,0120,"Referente notas " + MV_PAR07,oFont8,100) 	// Instruções de parametro
+		EndIf
+		oPrint:Say(_nLinInst+40,0120,"Referente bilhete " + _aTitSafra[i,1],oFont8,100) 	// Instruções de parametro
+		
+		// Impressao do Codigo de Barras
+		//MSBAR("INT25",28.0,1.1,_cCodBarras,oPrint:oPrint,.F.,Nil,Nil,0.025,1.3,NIL,NIL,"A",.F.)
+//		If "P2050" $ oPrint:cPrinterName
+//			MSBAR("INT25",16.0,1.1,_cCodBarras,oPrint:oPrint,.F.,Nil,Nil,0.016,0.8,NIL,NIL,,.F.)
+//		Else	
+//			MSBAR("INT25",28.0,1.1,_cCodBarras,oPrint:oPrint,.F.,Nil,Nil,0.025,1.3,NIL,NIL,"A",.F.)
+//		EndIf	
+		MSBAR3("INT25" ,27.80,0.7,/*_cCodBarras*/_aTitSafra[i,25]     ,oPrint  ,.F.      ,Nil  ,.T.    ,0.025      ,1.25   ,   Nil   ,   Nil   ,   "A"  ,.F.)
+
+		oPrint:EndPage()
+
+	Next i
+
+	oPrint:Preview()
+	
+	SM0->(RestArea(aAreaSM0))
+
+Return 
+
+/*/{Protheus.doc} nomeStaticFunction
+	Impressão boleto Safra QRCODE HIBRIDO
+	@type  Static Function
+	@author FWNM
+	@since 20/05/2024
+	@version version
+	@param param_name, param_type, param_descr
+	@return return_var, return_type, return_description
+	@example
+	(examples)
+	@see (links_or_references)
+/*/
+Static Function ImpNewSafra(_aTitSafra)
+
+	Local i
+	Local aDadEmp	:= {}
+	Local aDadBco	:= {}
+	Local aDadTit	:= {}
+	Local aDadCli	:= {}
+	Local aBarra	:= {}
+	Local nLoop		:= 0
+	Local nTpImp	:= 0
+	//Local _nX		:= 1
+	//Local _nY		:= 1
+	//Local lEnvioBol := .F.
+
+	Local oFont8
+	Local oFont10
+	Local oFont11c
+	Local oFont14
+	Local oFont14n
+	Local oFont15
+	Local oFont15n
+	Local oFont16n
+	Local oFont20
+	Local oFont21
+	Local oFont24
+	Local nLin       := -040
+
+	Private oPrintPvt
+
+	cCNPJ := transform(cCNPJ,"@R 99.999.999/9999-99")
+
+	_cNome_Bco := "BANCO SAFRA S.A"
+	_cCod_Comp := "|422-7|"
+	_cAg_Conta := "04800/005840731"
+	_cCarteira := "01"
+	_cAceite   := "N"
+
+	cMensag1 := ""				// [11]1a. Linha de Mensagem diversas
+	cMensag2 := ""				// [11]2a. Linha de Mensagem diversas
+	cMensag3 := ""				// [11]3a. Linha de Mensagem diversas
+	cMensag4 := ""				// [11]4a. Linha de Mensagem diversas
+	cMensag5 := ""				// [11]5a. Linha de Mensagem diversas
+	cMensag6 := ""				// [11]6a. Linha de Mensagem diversas
+
+	//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+	//³ Define o tipo de configuração a ser utilizado na MSBAR ³
+	//³ 1 = Polegadas, 2 = Centímetros                         ³
+	//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	nTpImp	:= 2          
+
+	cFileBol := AllTrim(SZ4->Z4_BILHETE)+DtoC(msDate())+cUserName+time()
+
+	MakeDir( "c:\temp\" )  
+	MakeDir( "\dirdoc\boleto\" )
+	If File( "c:\temp\" + cFileBol + ".pdf")
+		fErase( "c:\temp\" + cFileBol + ".pdf")
+	Endif
+
+	//oPrintPvt:=FwmsPrinter():New( "boleto", 6, .t., 'c:\temp\', .T., .F., , , .F., .F., .F., .F., 1)
+	oPrintPvt:=FwmsPrinter():New( cFileBol, 6, .t., 'c:\temp\', .T., .F., , , .F., .F., .F., .F., 1)
+	oPrintPvt:SetResolution(72)
+	oPrintPvt:SetPortrait()
+	oPrintPvt:SetPaperSize(DMPAPER_A4)
+	oPrintPvt:SetMargin(60, 60, 60, 30)
+	oPrintPvt:cPathPDF := "c:\temp\"
+	oPrintPvt:lViewPDF := .T.
+		
+	oFont8		:= TFont():New("Arial",			9,08,.T.,.F.,5,.T.,5,.T.,.F.)
+	oFont10		:= TFont():New("Arial",			9,10,.T.,.T.,5,.T.,5,.T.,.F.)
+	oFont11c	:= TFont():New("Courier New",	9,11,.T.,.T.,5,.T.,5,.T.,.F.)
+	oFont14		:= TFont():New("Arial",			9,14,.T.,.T.,5,.T.,5,.T.,.F.)
+	oFont14n	:= TFont():New("Arial",			9,14,.T.,.F.,5,.T.,5,.T.,.F.)
+	oFont15		:= TFont():New("Arial",			9,15,.T.,.T.,5,.T.,5,.T.,.F.)
+	oFont15n	:= TFont():New("Arial",			9,15,.T.,.F.,5,.T.,5,.T.,.F.)
+	oFont16n	:= TFont():New("Arial",			9,16,.T.,.F.,5,.T.,5,.T.,.F.)
+	oFont20		:= TFont():New("Arial",			9,20,.T.,.T.,5,.T.,5,.T.,.F.)
+	oFont21		:= TFont():New("Arial",			9,21,.T.,.T.,5,.T.,5,.T.,.F.)
+	oFont24		:= TFont():New("Arial",			9,24,.T.,.T.,5,.T.,5,.T.,.F.)
+
+	For i:=1 to Len(_aTitSafra)
+
+		SE1->( dbSetOrder(1) )
+		SE1->( dbSeek(FWxFilial("SE1")+_aTitSafra[i,1]) )
+
+		SA1->( dbSetOrder(1) )
+		SA1->( dbSeek(FWxFilial("SA1")+SE1->(E1_CLIENTE+E1_LOJA)) )
+
+		aDadTit	:= {	"",;					// [1] Prefixo do Título
+						"",;					// [2] Número do Título
+						"",;					// [3] Parcela do Título
+						"",;					// [4] Tipo do título
+						CToD("  /  /  "),;		// [5] Data de Emissão do título
+						CToD("  /  /  "),;		// [6] Data de Vencimento do Título
+						CToD("  /  /  "),;		// [7] Data de Vencimento Real
+						0,;						// [8] Valor Líquido do Título
+						"",;					// [9] Código do Barras Formatado
+						"",;					// [10]Carteira de Cobrança
+						"",;					// [11]1.a Linha de Mensagens Diversas
+						"",;					// [12]2.a Linha de Mensagens Diversas
+						"",;					// [13]3.a Linha de Mensagens Diversas
+						"",;					// [14]4.a Linha de Mensagens Diversas
+						"",;					// [15]5.a Linha de Mensagens Diversas
+						"" ;					// [16]6.a Linha de Mensagens Diversas
+						}
+
+		aDadCli	:= {	"",;					// [1] Código do cliente
+						"",;					// [2] Loja do Cliente
+						"",;					// [3] Nome Completo do Cliente
+						"",;					// [4] CNPJ do Cliente
+						"",;					// [5] Inscrição Estadual do cliente
+						"",;					// [6] Tipo de Pessoa do Cliente
+						"",;					// [7] Endereço
+						"",;					// [8] Bairro
+						"",;					// [9] Município
+						"",;					// [10] Estado
+						"",;					// [11] Cep
+						"" ;					// [12] Via de entrega (Correio/Nota)
+						}
+
+		aBarra	:= {	"",;					// [1] Código de barras (Banco+"9"+Dígito+Fator+Valor+Campo Livre
+						"",;					// [2] Linha Digitável
+						"",;					// [3] Nosso Número sem formatação
+						"" ;					// [4] Nosso Número Formatado
+						}
+
+		aDadEmp	:= {	"",;	// [1] Nome da Empresa
+						"",;	// [2] Endereço
+						"",;	// [3] Bairro
+						"",;	// [4] Cidade
+						"",;	// [5] Estado
+						"",;	// [6] Cep
+						"",;	// [7] Telefone
+						"",;	// [8] Fax
+						"",;	// [9] CNPJ
+						"" ;	// [10]Inscrição Estadual
+						}
+
+		aDadBco	:= {	"",;	// [1] Código do Banco
+						"",;	// [2] Dígito do Banco
+						"",;	// [3] Código da Agência
+						"",;	// [4] Dígito da Agência
+						"",;	// [5] Número da Conta Corrente
+						"",;	// [6] Dígito da Conta Corrente
+						"",;	// [7] Nome Completo do Banco
+						"",;	// [8] Nome Reduzido do Banco
+						"",;	// [9] Nome do Arquivo com o Logotipo do Banco
+						0,;		// [10]Taxa de juros a ser utilizado no cálculo de juros de mora
+						0,;		// [11]Taxa de multa a ser impressa no boleto
+						0,;		// [12]Número de dias para envio do título ao cartório
+						"",;	// [13]Dado para o campo "Uso do Banco"
+						"",;	// [14]Dado para o campo "Espécie do Documento"
+						"",;	// [15]Código do Cedente
+						"" ;    // [16]Contrato banco\Convênio
+						}
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Alimenta array com os dados do cliente ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		aDadCli[1]	:= SA1->A1_COD
+		aDadCli[2]	:= SA1->A1_LOJA
+		aDadCli[3]	:= SA1->A1_NOME
+		aDadCli[4]	:= SA1->A1_CGC
+		aDadCli[5]	:= SA1->A1_INSCR
+		aDadCli[6]	:= SA1->A1_PESSOA
+		If !Empty(SA1->A1_ENDCOB)
+			If !( "MESMO" $ UPPER( SA1->A1_ENDCOB ) )
+				aDadCli[7]	:= SA1->A1_ENDCOB
+				aDadCli[8]	:= SA1->A1_BAIRROC
+				aDadCli[9]	:= SA1->A1_MUNC
+				aDadCli[10]	:= SA1->A1_ESTC
+				aDadCli[11]	:= SA1->A1_CEPC
+				aDadCli[12]	:= ""//"CORREIO"
+			Else
+				aDadCli[7]	:= SA1->A1_END
+				aDadCli[8]	:= SA1->A1_BAIRRO
+				aDadCli[9]	:= SA1->A1_MUN
+				aDadCli[10]	:= SA1->A1_EST
+				aDadCli[11]	:= SA1->A1_CEP
+				aDadCli[12]	:= ""//"CAMINHÃO"
+
+			EndIf
+		Else
+			aDadCli[7]	:= SA1->A1_END
+			aDadCli[8]	:= SA1->A1_BAIRRO
+			aDadCli[9]	:= SA1->A1_MUN
+			aDadCli[10]	:= SA1->A1_EST
+			aDadCli[11]	:= SA1->A1_CEP
+			aDadCli[12]	:= ""//"CORREIO"
+		Endif
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Alimenta array com os dados do título ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		aDadTit[1]	:= SE1->E1_PREFIXO		// [1] Prefixo do Título
+		aDadTit[2]	:= SE1->E1_NUM			// [2] Número do Título
+		aDadTit[3]	:= SE1->E1_PARCELA		// [3] Parcela do Título
+		aDadTit[4]	:= SE1->E1_TIPO			// [4] Tipo do título
+		aDadTit[5]	:= SE1->E1_EMISSAO		// [5] Data de Emissão do título
+		aDadTit[6]	:= SE1->E1_VENCTO		// [6] Data de Vencimento do Título
+		aDadTit[7]	:= SE1->E1_VENCREA		// [7] Data de Vencimento Real
+		aDadTit[8]	:= 0 //nSaldo				// [8] Valor Líquido do Título
+		aDadTit[9]	:= "" //aBarra[4]			// [9] Código do Barras Formatado
+		aDadTit[10]	:= _cCarteira			// [10]Carteira de Cobrança
+		aDadTit[11]	:= cMensag1				// [11]1a. Linha de Mensagem diversas
+		aDadTit[12]	:= cMensag2				// [11]2a. Linha de Mensagem diversas
+		aDadTit[13]	:= cMensag3				// [11]3a. Linha de Mensagem diversas
+		aDadTit[14]	:= cMensag4				// [11]4a. Linha de Mensagem diversas
+		aDadTit[15]	:= cMensag5				// [11]5a. Linha de Mensagem diversas
+		aDadTit[16]	:= cMensag6				// [11]6a. Linha de Mensagem diversas
+
+		If !Empty(SM0->M0_ENDCOB)
+			aDadEmp[2]	:= SM0->M0_ENDCOB
+			aDadEmp[3]	:= SM0->M0_BAIRCOB
+			aDadEmp[4]	:= SM0->M0_CIDCOB
+			aDadEmp[5]	:= SM0->M0_ESTCOB
+			aDadEmp[6]	:= SM0->M0_CEPCOB
+		Else
+			aDadEmp[2]	:= SM0->M0_ENDENT
+			aDadEmp[3]	:= SM0->M0_BAIRENT
+			aDadEmp[4]	:= SM0->M0_CIDENT
+			aDadEmp[5]	:= SM0->M0_ESTENT
+			aDadEmp[6]	:= SM0->M0_CEPENT
+		EndIf
+
+		aDadEmp[1]	:= SM0->M0_NOMECOM
+		aDadEmp[7]	:= SM0->M0_TEL
+		aDadEmp[8]	:= SM0->M0_FAX
+		aDadEmp[9]	:= SM0->M0_CGC
+		aDadEmp[10]	:= SM0->M0_INSC
+
+		aDadBco[1]	:= "422"
+		aDadBco[2]	:= "7" 
+
+		If SA6->(FieldPos("A6_DVAGE")) > 0
+			aDadBco[3]	:= SA6->A6_AGENCIA
+			aDadBco[4]	:= SA6->A6_DVAGE //SA6->A6_DIGAGE
+		Else
+			If At( "-", SA6->A6_AGENCIA ) > 1
+				aDadBco[3]	:= SubStr( SA6->A6_AGENCIA, 1, At( "-", SA6->A6_AGENCIA ) - 1 )
+				aDadBco[4]	:= SubStr( SA6->A6_AGENCIA, At( "-", SA6->A6_AGENCIA ) + 1, 1 )
+			Else
+				aDadBco[3]	:= Alltrim(	SA6->A6_AGENCIA	)
+				aDadBco[4]	:= ""
+			EndIf
+		EndIf
+		
+		If SA6->(FieldPos("A6_DVCTA")) > 0 
+			If At( "-", SA6->A6_NUMCON ) > 1   
+				aDadBco[5]	:= SubStr( SA6->A6_NUMCON, 1, At( "-", SA6->A6_NUMCON ) - 1)   
+				aDadBco[6]	:= SubStr( SA6->A6_NUMCON, At( "-", SA6->A6_NUMCON ) + 1, 1)   
+			Else	    
+				aDadBco[5]	:= SA6->A6_NUMCON
+				aDadBco[6]	:= SA6->A6_DVCTA  //SA6->A6_DIGCON
+			EndIf
+		Else
+			If At( "-", SA6->A6_NUMCON ) > 1
+				aDadBco[5]	:= SubStr( SA6->A6_NUMCON, 1, At( "-", SA6->A6_NUMCON ) - 1)
+				aDadBco[6]	:= SubStr( SA6->A6_NUMCON, At( "-", SA6->A6_NUMCON ) + 1, 1)
+			Else
+				aDadBco[5]	:= AllTrim( SA6->A6_NUMCON )
+				aDadBco[6]	:= ""
+			EndIf
+		EndIf
+
+		aDadBco[7]	:= SA6->A6_NOME
+
+		aDadBco[8]	:= _cNome_Bco
+				
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Define as taxas a serem utilizadas nos cálculos das mensagens ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		aDadBco[10]	:= SuperGetMv("TC_TXJBOL", .F., 0.00)
+		aDadBco[11]	:= SuperGetMv("TC_TXMBOL", .F., 0.00)
+		aDadBco[12]	:= SuperGetMv("TC_DIABOL", .F., 0)
+
+		aDadBco[14]	:= "NF"
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Agência + Conta Corrente ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		aDadBco[15]	:= AllTrim(aDadBco[3])
+		aDadBco[16] := SEE->EE_CODEMP
+		If !Empty(aDadBco[4])
+			aDadBco[15]	+= "-"+Alltrim(aDadBco[4])
+		EndIf
+		If !Empty(aDadBco[5]) .AND. !SA6->A6_COD $ "033"
+			aDadBco[15] += "/"+AllTrim(aDadBco[5])
+			If !Empty(aDadBco[6])
+				aDadBco[15] += "-"+AllTrim(aDadBco[6])
+			EndIf
+		Else
+			aDadBco[15] += "/"+AllTrim(aDadBco[16])	
+		EndIf
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Inicia uma nova página ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ 
+		oPrintPvt:StartPage()
+
+		// Box Cedente
+		//oPrintPvt:Line(80,0300,80,2300)														// Quadro
+		/*
+		oPrintPvt:Line(110,0500,250,0500)														// Quadro
+		oPrintPvt:Line(180,0750,250,0750)														// Quadro
+		oPrintPvt:Line(110,1000,250,1000)														// Quadro
+		oPrintPvt:Line(110,1300,180,1300)														// Quadro
+		oPrintPvt:Line(110,1480,250,1480)														// Quadro
+		*/
+
+		oPrintPvt:Say(80,1800,"Comprovante de Entrega",oFont14)
+		oPrintPvt:Say(80,0100,	_cNome_Bco,											    oFont14)	// Nome do Banco
+		oPrintPvt:Say(80,0513,	_cCod_Comp,												oFont21)	// Numero do Banco + Dígito
+
+		oPrintPvt:Say(130,0100,"Beneficiário",oFont10)
+		oPrintPvt:Say(130,0700,"Agência/Código Beneficiário",oFont10)
+		oPrintPvt:Say(160,0100,SM0->M0_NOMECOM,oFont11c)
+		oPrintPvt:Say(160,0700,AllTrim(_cAg_Conta),oFont11c)
+
+		oPrintPvt:Say(130,1300,"Motivos de não entrega (para uso da empresa entregadora)",oFont10)
+		oPrintPvt:Say(160,1300,"( ) Mudou-se              ( ) Ausente                        ( ) Não existe n. indicado",oFont8)
+		oPrintPvt:Say(190,1300,"( ) Recusado              ( ) Não procurado             ( ) Falecido",oFont8)
+		oPrintPvt:Say(220,1300,"( ) Desconhecido       ( ) Endereço insuficiente   ( ) Outros - anotar no verso",oFont8)
+
+		oPrintPvt:Say(200,0100,"Pagador",oFont10)
+		oPrintPvt:Say(200,0700,"Nosso Número",oFont10)
+		oPrintPvt:Say(230,0100,AllTrim(aDadEmp[1]),oFont11c)
+		oPrintPvt:Say(230,0700,ALLTRIM(SE1->E1_NUMBCO),oFont11c)
+
+		oPrintPvt:Say(270,0100,"Vencimento",oFont10)
+		oPrintPvt:Say(270,0400,"Nro.Documento",oFont10)
+		oPrintPvt:Say(270,0700,"Valor do Documento",oFont10)
+		oPrintPvt:Say(300,0100,StrZero(Day(aDadTit[7]),2) +"/"+StrZero(Month(aDadTit[7]),2) +"/"+StrZero(Year(aDadTit[7]),4),oFont11c)
+		oPrintPvt:Say(300,0400,Alltrim(_aTitSafra[i,21]),oFont11c)
+		oPrintPvt:Say(300,0700,Transform(_aTitSafra[i,3]+_aTitSafra[i,23],"@E 9999,999,999.99"),oFont11c)
+
+		oPrintPvt:Say(340,0100,"Recebi(emos) o boleto",oFont10)
+		oPrintPvt:Say(340,0500,"Data",oFont10)
+		oPrintPvt:Say(340,0900,"Assinatura",oFont10)
+		oPrintPvt:Say(340,1500,"Data",oFont10)
+		oPrintPvt:Say(340,1700,"Entregador",oFont10)
+
+		For nLoop := 100 to 2300 Step 50
+			oPrintPvt:Line(460, nLoop,460, nLoop+30)												// Linha pontilhada
+		Next nLoop
+
+		////////////////////////////// ok daqui pra baixo
+		nLin  += 0050
+		For nLoop := 100 to 2300 Step 50
+			oPrintPvt:Line(nLin+0580, nLoop,nLin+0580, nLoop+30)												// Linha pontilhada
+		Next nLoop
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Define o Segundo Bloco - Recibo do Pagador ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		oPrintPvt:Line(nLin+0710,0100,nLin+0710,2300)														// Quadro
+		oPrintPvt:Line(nLin+0710,0500,nLin+0630,0500)														// Quadro
+		oPrintPvt:Line(nLin+0710,0710,nLin+0630,0710)														// Quadro
+
+		oPrintPvt:Say(nLin+0644,0100,	_cNome_Bco,											    oFont14)	// Nome do Banco
+		oPrintPvt:Say(nLin+0695,0513,	_cCod_Comp,												oFont21)	// Numero do Banco + Dígito
+		oPrintPvt:Say(nLin+0704,1900,	"Recibo do Pagador",									oFont10)	// Texto Fixo
+
+		oPrintPvt:Line(nLin+0810,0100,nLin+0810,2300)														// Quadro
+		oPrintPvt:Line(nLin+0910,0100,nLin+0910,2300)														// Quadro
+		oPrintPvt:Line(nLin+0980,0100,nLin+0980,2300)														// Quadro
+		oPrintPvt:Line(nLin+1050,0100,nLin+1050,2300)														// Quadro
+
+		oPrintPvt:Line(nLin+0910,0500,nLin+1050,0500)														// Quadro
+		oPrintPvt:Line(nLin+0980,0750,nLin+1050,0750)														// Quadro
+		oPrintPvt:Line(nLin+0910,1000,nLin+1050,1000)														// Quadro
+		oPrintPvt:Line(nLin+0910,1300,nLin+0980,1300)														// Quadro
+		oPrintPvt:Line(nLin+0910,1480,nLin+1050,1480)														// Quadro
+
+		oPrintPvt:Say(nLin+0730,0100 ,	"Local de Pagamento",									oFont8)		// Texto Fixo  
+		oPrintPvt:Say(nLin+0745,0400 ,	"Pagável em qualquer banco do sistema de compensação",oFont10)
+																									// 1a. Linha de Local Pagamento
+		oPrintPvt:Say(nLin+0730,1810,	"Data de Vencimento",											oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+0770,2000,	StrZero(Day(aDadTit[7]),2) +"/"+;
+										StrZero(Month(aDadTit[7]),2) +"/"+; 
+										StrZero(Year(aDadTit[7]),4),					 		oFont11c)	// Vencimento
+
+		oPrintPvt:Say(nLin+0830,0100,	"Nome do Beneficiário",  											oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+0860,0100,	AllTrim(aDadEmp[1])+ " - CNPJ: "+Transform(aDadEmp[9], "@R 99.999.999/9999-99"), oFont10)	// Nome + CNPJ
+		oPrintPvt:Say(nLin+0890,0100,	AllTrim(aDadEmp[2])+ ' - '+Alltrim( aDadEmp[4] ) + '/' + Alltrim( aDadEmp[5] ) + ' - CEP: ' + Transform(aDadEmp[6], "@R 99.999-999" ), oFont10)	// Endereço
+
+		oPrintPvt:Say(nLin+0830,1810,	"Agência/Código Beneficiário",	     						oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+0870,1900,	AllTrim(_cAg_Conta),									oFont11c)	// Agencia + Cód.Beneficiário + Dígito
+
+		oPrintPvt:Say(nLin+0930,0100,	"Data do Documento",									oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+0960,0150,	StrZero(Day(aDadTit[5]),2)+"/"+ ;
+										StrZero(Month(aDadTit[5]),2)+"/"+ ;
+										Right(Str(Year(aDadTit[5])),4),						oFont10)	// Data do Documento
+
+		oPrintPvt:Say(nLin+0930,0505,	"Nro.Documento",										oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+0960,0605,	Alltrim(_aTitSafra[i,21]),						oFont10)	// Prefixo + Numero + Parcela
+
+		oPrintPvt:Say(nLin+0930,1005,	"Espécie Doc.",											oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+0960,1055,	"DM",											oFont10)	// Tipo do Titulo
+
+		oPrintPvt:Say(nLin+0930,1305,	"Aceite",												oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+0960,1400,	_cAceite,												oFont10)	// Texto Fixo
+
+		oPrintPvt:Say(nLin+0930,1485,	"Data do Processamento",								oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+0960,1550,	StrZero(Day(msDate()),2)+"/"+ ;
+										StrZero(Month(msDate()),2)+"/"+ ;
+										StrZero(Year(msDate()),4),								oFont10)	// Data impressao
+
+		oPrintPvt:Say(nLin+0930,1810,	"Nosso Número",											oFont8)		// Texto Fixo 
+		oPrintPvt:Say(nLin+0960,1900,	ALLTRIM(SE1->E1_NUMBCO),								oFont11c)	// Nosso Número
+
+		oPrintPvt:Say(nLin+1000,0100,	"Uso do Banco",											oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+1030,0150,	aDadBco[13],											oFont10)	// Texto Fixo
+
+		oPrintPvt:Say(nLin+1000,0505,	"Carteira",												oFont8)		// Texto Fixo  
+		oPrintPvt:Say(nLin+1030,0555,	_cCarteira,										    	oFont10)	// Carteira
+
+		oPrintPvt:Say(nLin+1000,0755,	"Espécie",												oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+1030,0805,	"R$",													oFont10)	// Texto Fixo
+
+		oPrintPvt:Say(nLin+1000,1005,	"Quantidade",											oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+1000,1485,	"Valor",												oFont8)		// Texto Fixo
+
+		oPrintPvt:Say(nLin+1000,1810,	"Valor do Documento",									oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+1030,1900,	Transform(_aTitSafra[i,3]+_aTitSafra[i,23],"@E 9999,999,999.99"),				oFont11c)	// Valor do Título
+
+		oPrintPvt:Say(nLin+1070,0100,	"Instruções (Todas informações deste bloqueto são de exclusiva responsabilidade do Beneficiário)", ofont8)
+
+		nValMora := ( _aTitSafra[i,3] * ( 5 / 100) ) / 30 	
+
+		cMsg  := ""
+		If !Empty(MV_PAR07)
+			cMsg  := "Referente notas " + MV_PAR07
+		EndIf
+		cMsg2 := "Referente bilhete " + _aTitSafra[i,1]
+																								
+		oPrintPvt:Say(nLin+1120,0100,	"Não dispensar mora de R$ " + Alltrim(Transform(nValMora,"@E 999,999,999.99")) + " por dia de atraso",											oFont10)	// 1a Linha Instrução
+		oPrintPvt:Say(nLin+1170,0100,	"Após o vencimento cobrar multa de R$ " + Alltrim(Transform(_aTitSafra[i,3] * (2/100),"@E 999,999.99")),										oFont10)	// 2a. Linha Instrução
+		oPrintPvt:Say(nLin+1220,0100,	cMsg2,											oFont10)	// 3a. Linha Instrução
+		oPrintPvt:Say(nLin+1270,0100,	cMsg,											oFont10)	// 4a. Linha Instrução
+		oPrintPvt:Say(nLin+1320,0100,	"",											oFont10)	// 5a. Linha Instrução
+		oPrintPvt:Say(nLin+1370,0100,	"",											oFont10)	// 6a. Linha Instrução
+
+		oPrintPvt:Say(nLin+1070,1810,	"(-)Desconto/Abatimento",								oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+1100,1900,	Transform(SE1->E1_DECRESC,"@E 999,999,999.99"),			oFont11c)		// Texto Fixo
+
+		oPrintPvt:Say(nLin+1140,1810,	"(-)Outras Deduções",									oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+1210,1810,	"(+)Mora/Multa",										oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+1280,1810,	"(+)Outros Acréscimos",									oFont8)		// Texto Fixo
+
+		oPrintPvt:Say(nLin+1350,1810,	"(=)Valor Cobrado",										oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+1380,1900,	Transform(_aTitSafra[i,3],"@E 999,999,999.99"),			oFont11c)		// Texto Fixo
+
+		oPrintPvt:Say(nLin+1420,0100,	"Pagador",												oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+1450,0400,	aDadCli[3],												oFont10)	// Nome do Cliente
+
+		oPrintPvt:Say(nLin+1450,1850,   "CNPJ: "+Transform(aDadCli[4],"@R 99.999.999/9999-99"))
+
+		oPrintPvt:Say(nLin+1503,0400,	AllTrim(aDadCli[7])+" "+AllTrim(aDadCli[8]),			oFont10)	// Endereço + Bairro
+
+		oPrintPvt:Say(nLin+1556,0400,	Transform(aDadCli[11],"@R 99999-999")+" - "+ ;
+												AllTrim(aDadCli[9])+" - "+ ;
+												AllTrim(aDadCli[10]),							oFont10)	// CEP + Cidade + Estado
+
+		oPrintPvt:Say(nLin+1609,1850,	ALLTRIM(SE1->E1_NUMBCO),												oFont10)	// Nosso Número
+
+		oPrintPvt:Say(nLin+1625,0100,	"Beneficiário final ",	                					oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+1665,1500,	"Autenticação Mecânica",								oFont8)		// Texto Fixo
+
+		oPrintPvt:Line(nLin+0710,1800,nLin+1400,1800)														// Quadro
+		oPrintPvt:Line(nLin+1120,1800,nLin+1120,2300)														// Quadro
+		oPrintPvt:Line(nLin+1190,1800,nLin+1190,2300)														// Quadro
+		oPrintPvt:Line(nLin+1260,1800,nLin+1260,2300)														// Quadro
+		oPrintPvt:Line(nLin+1330,1800,nLin+1330,2300)														// Quadro
+		oPrintPvt:Line(nLin+1400,0100,nLin+1400,2300)														// Quadro
+		oPrintPvt:Line(nLin+1640,0100,nLin+1640,2300)														// Quadro
+		
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Pontilhado separador ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		nLin	-= 100
+		For nLoop := 100 To 2300 Step 50
+			oPrintPvt:Line(nLin+1880, nLoop, nLin+1880, nLoop+30)												// Linha Pontilhada
+		Next nLoop
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Define o Terceiro Bloco - Ficha de Compensação ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		oPrintPvt:Line(nLin+2000,0100,nLin+2000,2300)										// Quadro
+		oPrintPvt:Line(nLin+2000,0500,nLin+1920,0500)										// Quadro
+		oPrintPvt:Line(nLin+2000,0710,nLin+1920,0710)										// Quadro
+
+		oPrintPvt:Say(nLin+1934,100,	_cNome_Bco,								oFont14)	// Nome do Banco
+		oPrintPvt:Say(nLin+1985,0513,	_cCod_Comp,								oFont21)	// Numero do Banco + Dígito
+
+		//Montar a Linha Digitavel da Boleta
+		MontaLinha(i)
+		oPrintPvt:Say(nLin+1974,0755,	_cLineDig,	oFont15n)	// Linha Digitavel do Codigo de Barras
+
+		oPrintPvt:Line(nLin+2100,100,nLin+2100,2300 )									// Quadro
+		oPrintPvt:Line(nLin+2200,100,nLin+2200,2300 )									// Quadro
+		oPrintPvt:Line(nLin+2270,100,nLin+2270,2300 )									// Quadro
+		oPrintPvt:Line(nLin+2340,100,nLin+2340,2300 )									// Quadro
+
+		oPrintPvt:Line(nLin+2200,0500,nLin+2340,0500)									// Quadro
+		oPrintPvt:Line(nLin+2270,0750,nLin+2340,0750)									// Quadro
+		oPrintPvt:Line(nLin+2200,1000,nLin+2340,1000)									// Quadro
+		oPrintPvt:Line(nLin+2200,1300,nLin+2270,1300)									// Quadro
+		oPrintPvt:Line(nLin+2200,1480,nLin+2340,1480)									// Quadro
+
+		oPrintPvt:Say(nLin+2020,0100,	"Local de Pagamento",									oFont8)		// Texto Fixo  
+
+		oPrintPvt:Say(nLin+2035,0400,	"Pagável em qualquer banco do sistema de compensação", oFont10)	// Texto Fixo
+
+		oPrintPvt:Say(nLin+2020,1810,	"Data de Vencimento",											oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2060,1900,	StrZero(Day(aDadTit[7]),2)+"/"+;
+										StrZero(Month(aDadTit[7]),2)+"/"+;
+										StrZero(Year(aDadTit[7]),4),							oFont11c)	// Vencimento
+
+		oPrintPvt:Say(nLin+2120,0100,	"Nome do Beneficiário",   											oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2160,0100,	AllTrim(aDadEmp[1])+ " - CNPJ: "+Transform(aDadEmp[9], "@R 99.999.999/9999-99"),	oFont10)	// Nome + CNPJ
+		oPrintPvt:Say(nLin+2190,0100,	AllTrim(aDadEmp[2])+ ' - '+Alltrim( aDadEmp[4] ) + '/' + Alltrim( aDadEmp[5] ) + ' - CEP: ' + Transform(aDadEmp[6], "@R 99.999-999" ), oFont10)	// Endereço
+
+		oPrintPvt:Say(nLin+2120,1810,	"Agência/Código Beneficiário",   							oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2160,1900,	AllTrim(_cAg_Conta),									oFont11c)	// Agencia + Cód.Beneficiário + Dígito
+
+		oPrintPvt:Say(nLin+2220,0100,	"Data do Documento",									oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2250,0100, 	StrZero(Day(aDadTit[5]),2)+"/"+ ;
+										StrZero(Month(aDadTit[5]),2)+"/"+ ;
+										StrZero(Year(aDadTit[5]),4),		 					oFont10)	// Vencimento
+
+		oPrintPvt:Say(nLin+2220,0505,	"Nro.Documento",										oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2250,0605,	Alltrim(_aTitSafra[i,21]),						oFont10)	// Prefixo + Numero + Parcela
+
+		oPrintPvt:Say(nLin+2220,1005,	"Espécie Doc.",						   					oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2250,1050,	"DM",											oFont10)	//Tipo do Titulo
+
+		oPrintPvt:Say(nLin+2220,1305,	"Aceite",												oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2250,1400,	_cAceite,													oFont10)	// Texto Fixo
+
+		oPrintPvt:Say(nLin+2220,1485,	"Data do Processamento",								oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2250,1550,	StrZero(Day(msDate()),2)+"/"+ ;
+										StrZero(Month(msDate()),2)+"/"+ ;
+										StrZero(Year(msDate()),4),								oFont10)	// Data impressao
+
+		oPrintPvt:Say(nLin+2220,1810,	"Nosso Número",											oFont8)		// Texto Fixo   
+		oPrintPvt:Say(nLin+2250,1900,	ALLTRIM(SE1->E1_NUMBCO),											oFont11c)	// Nosso Número
+
+		oPrintPvt:Say(nLin+2290,0100,	"Uso do Banco",											oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2320,0150,	aDadBco[13],											oFont10)	// Texto Fixo
+
+		oPrintPvt:Say(nLin+2290,0505,	"Carteira",												oFont8)		// Texto Fixo 
+		oPrintPvt:Say(nLin+2320,0555,	_cCarteira,										oFont10)
+
+		oPrintPvt:Say(nLin+2290,0755,	"Espécie",												oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2320,0805,	"R$",													oFont10)	// Texto Fixo
+
+		oPrintPvt:Say(nLin+2290,1005,	"Quantidade",											oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2290,1485,	"Valor",												oFont8)		// Texto Fixo
+
+		oPrintPvt:Say(nLin+2290,1810,	"Valor do Documento",									oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2320,1900,	Transform(_aTitSafra[i,3]+_aTitSafra[i,23],"@E 9999,999,999.99"),			oFont11c)	// Valor do Documento
+
+		oPrintPvt:Say(nLin+2360,0100,	"Informações de responsabilidade do beneficiário", ofont8)
+
+		oPrintPvt:Say(nLin+2420,0100,	"Não dispensar mora de R$ " + Alltrim(Transform(nValMora,"@E 999,999,999.99")) + " por dia de atraso",											oFont10)	// 1a Linha Instrução
+		oPrintPvt:Say(nLin+2470,0100,	"Após o vencimento cobrar multa de R$ " + Alltrim(Transform(_aTitSafra[i,3] * (2/100),"@E 999,999.99")),										oFont10)	// 2a. Linha Instrução
+		oPrintPvt:Say(nLin+2520,0100,	cMsg2,											oFont10)	// 3a. Linha Instrução
+		oPrintPvt:Say(nLin+2570,0100,	cMsg,											oFont10)	// 4a. Linha Instrução
+		oPrintPvt:Say(nLin+2620,0100,	aDadTit[15],											oFont10)	// 5a. Linha Instrução
+		oPrintPvt:Say(nLin+2670,0100,	aDadTit[16],											oFont10)	// 6a. Linha Instrução
+
+		oPrintPvt:Say(nLin+2360,1810,	"(-)Desconto/Abatimento",								oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2390,1900,	Transform(SE1->E1_DECRESC,"@E 999,999,999.99"),			oFont11c)		// Texto Fixo
+
+		oPrintPvt:Say(nLin+2430,1810,	"(-)Outras Deduções",									oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2500,1810,	"(+)Mora/Multa",										oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2570,1810,	"(+)Outros Acréscimos",									oFont8)		// Texto Fixo
+
+		oPrintPvt:Say(nLin+2640,1810,	"(=)Valor Cobrado",										oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2670,1900,	Transform(_aTitSafra[i,3],"@E 999,999,999.99"),			oFont11c)		// Texto Fixo
+
+		oPrintPvt:Say(nLin+2710,0100,	"Pagador",												oFont8)		// Texto Fixo
+		oPrintPvt:Say(nLin+2720,0400,	aDadCli[3],												oFont10)	// Nome Cliente 
+
+		oPrintPvt:Say(nLin+2720,1850,	"CNPJ: "+Transform(aDadCli[4],"@R 99.999.999/9999-99"))
+
+		oPrintPvt:Say(nLin+2773,0400,	Alltrim(aDadCli[7])+" "+AllTrim(aDadCli[8]),			oFont10)	// Endereço
+
+		oPrintPvt:Say(nLin+2826,0400,	Transform(aDadCli[11],"@R 99999-999")+" - "+;
+										AllTrim(aDadCli[9])+" - "+AllTrim(aDadCli[10]),		oFont10)	// CEP + Cidade + Estado
+
+		oPrintPvt:Say(nLin+2875,0100,	"Beneficiário final",                                     oFont8)		// Texto Fixo + Pagador Avalista
+		oPrintPvt:Say(nLin+2915,1500,	"Autenticação Mecânica - Ficha de Compensação",			oFont8)		// Texto Fixo
+
+		oPrintPvt:Line(nLin+2020,1800,nLin+2690,1800)														// Quadro
+		oPrintPvt:Line(nLin+2410,1800,nLin+2410,2300)														// Quadro
+		oPrintPvt:Line(nLin+2480,1800,nLin+2480,2300)														// Quadro
+		oPrintPvt:Line(nLin+2550,1800,nLin+2550,2300)														// Quadro
+		oPrintPvt:Line(nLin+2620,1800,nLin+2620,2300)														// Quadro
+		oPrintPvt:Line(nLin+2690,0100,nLin+2690,2300)														// Quadro
+		oPrintPvt:Line(nLin+2890,0100,nLin+2890,1900)														// Quadro
+		//oPrintPvt:Line(nLin+2890,0100,nLin+2890,2300)														// Quadro
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Se Impressão em polegadas ³
+		//³ Guarabira                 ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If nTpImp == 1 
+
+			MSBAR3(	"INT25",;
+					13.0,;
+					0.8,;
+					_aTitSafra[i,25],;
+					oPrintPvt,;
+					.F.,;
+					Nil,;
+					Nil,;
+					0.013,;
+					0.7,;
+					Nil,;
+					Nil,;
+					"A",;
+					.F.)
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³ Se Impressão em centímetros ³
+		//³ Campinas                    ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		Else  
+			
+			oPrintPvt:FwMsBar("INT25", 66.5,2.1, _aTitSafra[i,25], oPrintPvt, .F., NIL, .T., 0.025, 1.5, .F., NIL, NIL, .F.)
+
+			/*
+			MSBAR3("INT25",;			// Tipo do código (EAN13,EAN8,UPCA,SUP5,CODE128,INT25,MAT25,IND25,CODABAR,CODE3_9,EAN128)
+					24.0,;				// Número da linha em centímetros 24.0
+					0.8,;				// Número da coluna em centímetros
+					aBarra[1],;			// String com o conteúdo do código
+					oPrintPvt,;			// Objeto printer
+					.F.,;				// Se calcula o dígito de controle
+					Nil,;				// Número da Cor (utilizar a Common.ch)
+					Nil,;				// Se imprime na horizontal
+					0.025,;				// Número do tamanho da barra em centímetros
+					1.5,;				// Número da altura da barra em milímetros
+					Nil,;				// Imprime linha embaixo do código
+					Nil,;				// String com o tipo de fonte
+					"A",;				// String com o modo do código de barras
+					.F.)				// ??
+			*/
+
+		EndIf
+
+		cQRCode := GetQRCode()
+		//oPrintPvt:QRCode(3050,1950,cQRCode, 60)
+		oPrintPvt:QRCode(3050,1940,cQRCode, 95)
+
+		oPrintPvt:Say(nLin+0630,0100,	"PIX Copia/Cola: " + cQRCode,											oFont8)	// 6a. Linha Instrução
+		oPrintPvt:Say(nLin+1850,0100,	"PIX Copia/Cola: " + cQRCode,											oFont8)	// 6a. Linha Instrução
+
+		oPrintPvt:EndPage() // Finaliza a página
+
+	Next i
+
+	oPrintPvt:Preview()
+
+Return 
+
+/*/{Protheus.doc} nomeStaticFunction
+	Máscara/formatação linha digitável
+	@type  Static Function
+	@author FWNM
+	@since 20/07/2023
+	@version version
+	@param param_name, param_type, param_descr
+	@return return_var, return_type, return_description
+	@example
+	(examples)
+	@see (links_or_references)
+/*/
+Static Function MontaLinha(i)
+
+	_cLineDig := ""
+	_cnDigito := ""
+	_cPedaco  := ""
+	
+	_cFatorVcto := _aTitSafra[i,24]
+	_cCodBarras := _aTitSafra[i,25]
+
+	//Primeiro Campo
+	_cPedaco  := Substr(_cCodBarras,01,04) + '7' + Substr(_cCodBarras,21,04) 
+	_cLineDig := Substr(_cPedaco,01,05)+"."+ Substr(_cPedaco,06,04)+u_ADMOD10(2,_cPedaco)+ Space(2)
+
+	//Segundo Campo 
+	_cPedaco := ""
+	_cPedaco := Substr(_cCodBarras,25,1) + Substr(_cCodBarras,26,9)
+	_cLineDig += Substr(_cPedaco,01,05) +"."+ Substr(_cPedaco,06,05) + u_ADMOD10(1,_cPedaco) + Space(2)
+		
+	//Terceiro Campo 
+	_cPedaco := ""
+	_cPedaco := substr(_cCodBarras,35,10)
+	_cLineDig += Substr(_cPedaco,1,5) +"."+ Substr(_cPedaco,6,5) + u_ADMOD10(1,_cPedaco)+ Space(2)
+
+	//Quarto Campo
+	_cLineDig += Substr(_cCodBarras,5,1) + Space(2) //Calcula digito verificador do codigo de barras completo.
+
+	//Quinto Campo
+	_cLineDig  += _cFatorVcto + StrZero(Int(Round(_aTitSafra[i,3]*100,2)),10) 
+
+Return
+
+/*/
+ÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜÜ
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+±±ÚÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÂÄÄÄÄÄÄÂÄÄÄÄÄÄÄÄÄÄ¿±±
+±±³Programa  ³ Modulo10 ³ Autor ³ Microsiga             ³ Data ³ 13/10/03 ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Descri‡…o ³ IMPRESSAO DO BOLETO LASE DO SANTANDER COM CODIGO DE BARRAS      ³±±
+±±ÃÄÄÄÄÄÄÄÄÄÄÅÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ´±±
+±±³Uso       ³ Especifico para Clientes Microsiga                         ³±±
+±±ÀÄÄÄÄÄÄÄÄÄÄÁÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ±±
+±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±±
+ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß
+/*/
+Static Function Modulo10(cData)
+
+	LOCAL L,D,P := 0
+	LOCAL B     := .F.
+
+	L := Len(cData)
+	B := .T.
+	D := 0
+
+	While L > 0
+		P := Val(SubStr(cData, L, 1))
+		If (B)
+			P := P * 2
+			If P > 9
+				P := P - 9
+			End
+		End
+		D := D + P
+		L := L - 1
+		B := !B
+	End
+
+	D := 10 - (Mod(D,10))
+
+	If D = 10
+		D := 0
+	End
+
+Return(D)
+
+/*/{Protheus.doc} User Function nomeFunction
+	Validação contida no campo X1_VALID, pergunte 05 - Codigo do Banco
+	@type  Function
+	@author FWNM
+	@since 26/07/2023
+	@version version
+	@param param_name, param_type, param_descr
+	@return return_var, return_type, return_description
+	@example
+	(examples)
+	@see (links_or_references)
+/*/
+User Function X1VLDBCO(cX1)
+
+	Local lRet := .t.
+
+	Default cX1 := "AFI150"
+
+	If AllTrim(cX1) == "AFI150" // Pergunte Arquivo REMESSA Cobrança
+
+		If AllTrim(FWCodEmp()) == "01"
+
+			If !( AllTrim(MV_PAR05) $ "237" )
+				lRet := .f.
+				MessageBox("Nesta empresa/filial os portadores permitidos são 237","RFINB01-01",16)
+				Return lRet
+			EndIf
+
+		ElseIf AllTrim(FWCodEmp()) == "14"
+
+			If AllTrim(FWCodFil()) == "01"
+			
+				If !( AllTrim(MV_PAR05) $ "422|237" )
+					lRet := .f.
+					MessageBox("Nesta empresa/filial os portadores permitidos são 422 e 237","RFINB01-02",16)
+					Return lRet
+				EndIf
+
+				If AllTrim(MV_PAR05) == "422" .and. AllTrim(MV_PAR03) <> "SAFRA.REM"
+					lRet := .f.
+					MessageBox("Para portador 422 informar arquivo de configuração SAFRA.REM","RFINB01-03",16)
+					Return lRet
+				EndIf
+
+				If AllTrim(MV_PAR05) == "237" .and. AllTrim(MV_PAR03) <> "BRADESCO.REM"
+					lRet := .f.
+					MessageBox("Para portador 237 informar arquivo de configuração BRADESCO.REM","RFINB01-04",16)
+					Return lRet
+				EndIf
+
+			ElseIf AllTrim(FWCodFil()) == "04"
+
+				If !( AllTrim(MV_PAR05) $ "033" )
+					lRet := .f.
+					MessageBox("Nesta empresa/filial o portador permitido é 033","RFINB01-05",16)
+					Return lRet
+				EndIf
+
+			ElseIf AllTrim(FWCodFil()) == "06"
+
+				If !( AllTrim(MV_PAR05) $ "237" )
+					lRet := .f.
+					MessageBox("Nesta empresa/filial o portador permitido é 237","RFINB01-06",16)
+					Return lRet
+				EndIf
+
+			EndIf
+
+		ElseIf AllTrim(FWCodEmp()) == "17"
+
+			If !( AllTrim(MV_PAR05) $ "033" )
+				lRet := .f.
+				MessageBox("Nesta empresa/filial os portadores permitidos são 033","RFINB01-07",16)
+				Return lRet
+			EndIf
+
+		ElseIf AllTrim(FWCodEmp()) == "20"
+
+			If !( AllTrim(MV_PAR05) $ "237" )
+				lRet := .f.
+				MessageBox("Nesta empresa/filial os portadores permitidos são 237","RFINB01-08",16)
+				Return lRet
+			EndIf
+
+		ElseIf AllTrim(FWCodEmp()) == "24"
+
+			If !( AllTrim(MV_PAR05) $ "033" )
+				lRet := .f.
+				MessageBox("Nesta empresa/filial os portadores permitidos são 033","RFINB01-09",16)
+				Return lRet
+			EndIf
+
+		EndIf
+
+	ElseIf AllTrim(cX1) == "AFI200" // Pergunte Arquivo RETORNO Cobrança
+
+		If AllTrim(FWCodEmp()) == "01"
+
+			If !( AllTrim(MV_PAR06) $ "237" )
+				lRet := .f.
+				MessageBox("Nesta empresa/filial os portadores permitidos são 237","RFINB01-10",16)
+				Return lRet
+			EndIf
+
+		ElseIf AllTrim(FWCodEmp()) == "14"
+
+			If AllTrim(FWCodFil()) == "01"
+			
+				If !( AllTrim(MV_PAR06) $ "422|237" )
+					lRet := .f.
+					MessageBox("Nesta empresa/filial os portadores permitidos são 422 e 237","RFINB01-11",16)
+					Return lRet
+				EndIf
+
+				If AllTrim(MV_PAR06) == "422" .and. AllTrim(MV_PAR05) <> "SAFRA.RET"
+					lRet := .f.
+					MessageBox("Para portador 422 informar arquivo de configuração SAFRA.RET","RFINB01-12",16)
+					Return lRet
+				EndIf
+
+				If AllTrim(MV_PAR06) == "237" .and. AllTrim(MV_PAR05) <> "BRADESCO.RET"
+					lRet := .f.
+					MessageBox("Para portador 237 informar arquivo de configuração BRADESCO.RET","RFINB01-13",16)
+					Return lRet
+				EndIf
+
+			ElseIf AllTrim(FWCodFil()) == "04"
+
+				If !( AllTrim(MV_PAR06) $ "033" )
+					lRet := .f.
+					MessageBox("Nesta empresa/filial o portador permitido é 033","RFINB01-14",16)
+					Return lRet
+				EndIf
+
+			ElseIf AllTrim(FWCodFil()) == "06"
+
+				If !( AllTrim(MV_PAR06) $ "237" )
+					lRet := .f.
+					MessageBox("Nesta empresa/filial o portador permitido é 237","RFINB01-15",16)
+					Return lRet
+				EndIf
+
+			EndIf
+
+		ElseIf AllTrim(FWCodEmp()) == "17"
+
+			If !( AllTrim(MV_PAR06) $ "033" )
+				lRet := .f.
+				MessageBox("Nesta empresa/filial os portadores permitidos são 033","RFINB01-16",16)
+				Return lRet
+			EndIf
+
+		ElseIf AllTrim(FWCodEmp()) == "20"
+
+			If !( AllTrim(MV_PAR06) $ "237" )
+				lRet := .f.
+				MessageBox("Nesta empresa/filial os portadores permitidos são 237","RFINB01-17",16)
+				Return lRet
+			EndIf
+
+		ElseIf AllTrim(FWCodEmp()) == "24"
+
+			If !( AllTrim(MV_PAR06) $ "033" )
+				lRet := .f.
+				MessageBox("Nesta empresa/filial os portadores permitidos são 033","RFINB01-18",16)
+				Return lRet
+			EndIf
+
+		EndIf
+
+	EndIf
+
+Return lRet
+
+/*/{Protheus.doc} nomeStaticFunction
+	Monta QRCODE PIX  copia e cola
+	@type  Static Function
+	@author FWNM
+	@since 21/05/2024
+	@version version
+	@param param_name, param_type, param_descr
+	@return return_var, return_type, return_description
+	@example
+	(examples)
+	@see (links_or_references)
+/*/
+Static Function GetQRCode()
+
+	Local cRet := ""
+	
+	Local cHom := "77"
+	Local cPrd := "75"
+
+	Local cHom2 := "55"
+	Local cPrd2 := "53"
+
+	Local cHom3 := "pix-h.safra.com.br/qr/c/cobv/"
+	Local cPrd3 := "pix.safra.com.br/qr/c/cobv/"
+
+	Local lAmbPrd := GetMV("MV_#PIXPRD",,.T.)
+
+	cCampo1 := "000201010212"
+	
+	If lAmbPrd
+		cCampo2 := "26"+cPrd+"0014br.gov.bcb.pix25"+cPrd2+cPrd3+"07"+StrTran(_cAg_Conta,"/","")+AllTrim(SE1->E1_NUMBCO)+"2"
+	Else
+		cCampo2 := "26"+cHom+"0014br.gov.bcb.pix25"+cHom2+cHom3+"07"+StrTran(_cAg_Conta,"/","")+AllTrim(SE1->E1_NUMBCO)+"2"
+	EndIf
+
+	cCampo3 := "52040000"
+	
+	cCampo4 := "5303986"
+	
+	cCampo5 := "5802BR"
+	
+	cCampo6 := "59"+StrZero(Len(AllTrim(SM0->M0_NOMECOM)),2)+AllTrim(SM0->M0_NOMECOM)
+	
+	cCampo7 := "60"+StrZero(Len(AllTrim(SM0->M0_CIDENT)),2)+AllTrim(SM0->M0_CIDENT)
+	
+	cCampo8 := "62070503***"
+	
+	cCampo9 := "6304"
+
+	cCRC16  := ""
+	
+	cString := cCampo1+cCampo2+cCampo3+cCampo4+cCampo5+cCampo6+cCampo7+cCampo8+cCampo9
+
+	cDir     := "\CRC16\"
+	cPath    := GetSrvProfString ("ROOTPATH","") + cDir
+	cArq     := AllTrim(SE1->E1_NUMBCO) + ".TXT"
+	cCommand := "cmd /c CRC16 " + cString + " > " + cPath + cArq
+	lWait    := .t.
+
+	If !ExistDir(cDir)
+    	MakeDir(cDir)
+	EndIf
+	
+	If File(cDir+cArq)
+		fErase(cDir+cArq)
+	EndIf
+
+	lRet := .f.
+	lRet := WaitRunSrv( cCommand, lWait , "c:\WINDOWS\system32\" )
+
+	cCRC16 := ""
+	If File(cDir+cArq)
+		cCRC16 := AllTrim(MemoRead(cDir+cArq))
+		cCRC16 := StrTran(cCRC16,chr(10),"")
+	EndIf
+
+	cRet := cCampo1+cCampo2+cCampo3+cCampo4+cCampo5+cCampo6+cCampo7+cCampo8+cCampo9+cCRC16
+	
+Return cRet
+
+/*
+User Function newCRC16(cString)
+
+    Local CRC_POLY_CCITT := "0x1021"
+    Local CRC_START_CCITT_FFFF := "0xFFFF"
+    Local aCRCTabCCITT[256]
+    Local nCRC, nByte, nC, nI, nJ
+    Local cResult := ""
+    Local nLen
+
+    // Inicializa a tabela CRC
+    For nI := 0 To 255
+        nCRC := 0
+        nC := nI * 256
+        For nJ := 0 To 7
+            If (BitAnd(nCRC $ nC) .And. 32768) != 0
+                nCRC := (nCRC * 2) $ BitXOr(CRC_POLY_CCITT)
+            Else
+                nCRC := nCRC * 2
+            EndIf
+            nC := nC * 2
+        Next
+        aCRCTabCCITT[nI + 1] := nCRC
+    Next
+
+    // Converte a string para um array de bytes
+    nCRC := CRC_START_CCITT_FFFF
+    nLen := Len(cString)
+    For nI := 1 To nLen
+        nByte := Asc(SubStr(cString, nI, 1))
+        nCRC := (nCRC * 256) $ BitXOr(aCRCTabCCITT[((nCRC $ 256) $ BitXOr(nByte)) + 1])
+        nCRC := ((nCRC $ 65536) * 65536) $ BitXOr(nCRC)
+    Next
+
+    // Converte o CRC para hexadecimal com preenchimento
+    cResult := Upper(Transform(nCRC, "@E"))
+
+    Do Case
+        Case Len(cResult) == 1
+            cResult := "000" + cResult
+        Case Len(cResult) == 2
+            cResult := "00" + cResult
+        Case Len(cResult) == 3
+            cResult := "0" + cResult
+    EndCase
+
+Return cResult
+*/

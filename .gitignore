@@ -1,0 +1,77 @@
+# Dependências
+node_modules/
+dist/
+build/
+
+# Variáveis de ambiente (NUNCA subir)
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+ws_logs.txt
+
+# Arquivos de debug / scripts temporários
+debug_*.js
+inspect_*.js
+check_*.js
+list_tables*.js
+list_dbs.js
+test_*.js
+add_theme_column.js
+fix-*.js
+restore_permissions.js
+start_fixed.js
+testecnpj.js
+teste-impressora.mjs
+validaCadastroClientes.js
+check-environment-setup.js
+check-security-setup.js
+
+# PDFs e arquivos de impressão temporários
+relatorio.pdf
+avaria_via1.txt
+avaria_via2.txt
+devolucao_via1.txt
+devolucao_via2.txt
+transferencia_via1.txt
+transferencia_via2.txt
+pre_fechamento.txt
+*.rar
+*.fdb
+
+# Uploads e dados temporários
+uploads/
+temp/
+data/
+SistemaFF/
+
+# Arquivos de sistema Windows
+Thumbs.db
+Desktop.ini
+
+# Editor
+.vscode/
+.idea/
+
+# Pasta de fontes pesadas (se já estiver nos assets)
+fonts/
+
+# Cache do Vite
+.vite/
+
+# Arquivos temporários e dados de resposta
+boletosafra.pdf
+nfe.pdf
+qr_code.txt
+duplicity_res.json
+nota_res.json
+build.txt
+scratch_db.js
+sum.js
+tmp/
+
+# Configurações locais do Claude Code
+.claude/
