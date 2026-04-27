@@ -19,6 +19,11 @@ const ProdutoPorFornecedor = () => {
     const [loadingForn, setLoadingForn] = useState(false);
     const [selectedFornecedor, setSelectedFornecedor] = useState(null);
     
+    // Naturezas
+    const [naturezas, setNaturezas] = useState([]);
+    const [loadingNat, setLoadingNat] = useState(false);
+    const [selectedNatureza, setSelectedNatureza] = useState(null);
+
     // Produtos
     const [produtos, setProdutos] = useState([]);
     const [loadingProd, setLoadingProd] = useState(false);
@@ -38,12 +43,24 @@ const ProdutoPorFornecedor = () => {
         if (l) setLocal(l);
         handleSearchFornecedor("");
         handleSearchProduto("");
+        fetchNaturezas();
     }, []);
+
+    const fetchNaturezas = async () => {
+        setLoadingNat(true);
+        try {
+            const res = await axios.get(`${API_BASE_URL}/api/compras/naturezas`);
+            setNaturezas(res.data);
+        } catch (error) { console.error(error); }
+        setLoadingNat(false);
+    };
 
     useEffect(() => {
         if (selectedFornecedor) fetchNotasByFornecedor(selectedFornecedor.id);
         else if (selectedProduto) fetchNotasByProduto(selectedProduto.cod);
-    }, [dataDe, dataAte]);
+        else if (selectedNatureza) fetchNotasByNatureza();
+        else setNotas([]);
+    }, [dataDe, dataAte, selectedNatureza, selectedFornecedor, selectedProduto]);
 
     useEffect(() => {
         if (selectedNotas.length > 0) fetchAllItens();
@@ -77,7 +94,9 @@ const ProdutoPorFornecedor = () => {
         setLoadingNotas(true);
         setSelectedNotas([]);
         try {
-            const res = await axios.get(`${API_BASE_URL}/api/compras/fornecedor/${forneceId}/notas`, { params: { dataDe, dataAte } });
+            const res = await axios.get(`${API_BASE_URL}/api/compras/fornecedor/${forneceId}/notas`, { 
+                params: { dataDe, dataAte, natureza: selectedNatureza?.id } 
+            });
             setNotas(res.data);
         } catch (error) { Swal.fire({ icon: 'error', title: 'Erro', text: 'Erro ao buscar notas.', confirmButtonColor: '#0d9488' }); }
         setLoadingNotas(false);
@@ -88,7 +107,21 @@ const ProdutoPorFornecedor = () => {
         setLoadingNotas(true);
         setSelectedNotas([]);
         try {
-            const res = await axios.get(`${API_BASE_URL}/api/compras/produto/${prodCod}/notas`, { params: { dataDe, dataAte } });
+            const res = await axios.get(`${API_BASE_URL}/api/compras/produto/${prodCod}/notas`, { 
+                params: { dataDe, dataAte, natureza: selectedNatureza?.id } 
+            });
+            setNotas(res.data);
+        } catch (error) { Swal.fire({ icon: 'error', title: 'Erro', text: 'Erro ao buscar notas.', confirmButtonColor: '#0d9488' }); }
+        setLoadingNotas(false);
+    };
+
+    const fetchNotasByNatureza = async () => {
+        setLoadingNotas(true);
+        setSelectedNotas([]);
+        try {
+            const res = await axios.get(`${API_BASE_URL}/api/compras/notas`, { 
+                params: { dataDe, dataAte, natureza: selectedNatureza?.id } 
+            });
             setNotas(res.data);
         } catch (error) { Swal.fire({ icon: 'error', title: 'Erro', text: 'Erro ao buscar notas.', confirmButtonColor: '#0d9488' }); }
         setLoadingNotas(false);
@@ -179,12 +212,22 @@ const ProdutoPorFornecedor = () => {
             <main className="max-w-[95%] mx-auto px-4 md:px-6 py-8">
                 
                 <div className="bg-white dark:bg-slate-800 p-8 rounded-[32px] shadow-sm border border-slate-200 dark:border-slate-700 mb-8 transition-colors">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-end">
+                    <div className="grid grid-cols-1 md:grid-cols-5 gap-6 items-end">
+                        <div className="col-span-1 flex flex-col gap-2">
+                            <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 px-1 font-bold">Natureza (SA2)</label>
+                            <Autocomplete options={naturezas} loading={loadingNat} value={selectedNatureza}
+                                getOptionLabel={(option) => option.label || ""}
+                                onChange={(event, newValue) => setSelectedNatureza(newValue)}
+                                renderInput={(params) => ( <TextField {...params} variant="outlined" placeholder="Selecione..." size="small" sx={{ '& .MuiOutlinedInput-root': { backgroundColor: '#fdf2f8', borderRadius: '12px' } }}
+                                    InputProps={{ ...params.InputProps, endAdornment: ( <React.Fragment> {loadingNat ? <CircularProgress color="inherit" size={20} /> : null} {params.InputProps.endAdornment} </React.Fragment> ) }} 
+                                /> )}
+                            />
+                        </div>
                         <div className="col-span-1 flex flex-col gap-2">
                             <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 px-1 font-bold">Buscar Fornecedor (Fantasia)</label>
                             <Autocomplete options={fornecedores} loading={loadingForn} filterOptions={(x) => x} getOptionLabel={(option) => option.label || ""} value={selectedFornecedor}
                                 onInputChange={(event, newValue) => handleSearchFornecedor(newValue)}
-                                onChange={(event, newValue) => { setSelectedFornecedor(newValue); if (newValue) { setSelectedProduto(null); fetchNotasByFornecedor(newValue.id); } }}
+                                onChange={(event, newValue) => { setSelectedFornecedor(newValue); if (newValue) { setSelectedProduto(null); } }}
                                 renderInput={(params) => ( <TextField {...params} variant="outlined" placeholder="Digite o nome fantasia..." size="small" sx={{ '& .MuiOutlinedInput-root': { backgroundColor: '#f8fafc', borderRadius: '12px' } }}
                                     InputProps={{ ...params.InputProps, endAdornment: ( <React.Fragment> {loadingForn ? <CircularProgress color="inherit" size={20} /> : null} {params.InputProps.endAdornment} </React.Fragment> ) }} 
                                 /> )}
@@ -194,7 +237,7 @@ const ProdutoPorFornecedor = () => {
                             <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 px-1 font-bold">Buscar Produto</label>
                             <Autocomplete options={produtos} loading={loadingProd} filterOptions={(x) => x} getOptionLabel={(option) => option.label || ""} value={selectedProduto}
                                 onInputChange={(event, newInputValue) => { handleSearchProduto(newInputValue); }}
-                                onChange={(event, newValue) => { setSelectedProduto(newValue); if (newValue) { setSelectedFornecedor(null); fetchNotasByProduto(newValue.cod); } }}
+                                onChange={(event, newValue) => { setSelectedProduto(newValue); if (newValue) { setSelectedFornecedor(null); } }}
                                 renderInput={(params) => ( <TextField {...params} variant="outlined" placeholder="Digite código ou nome..." size="small" sx={{ '& .MuiOutlinedInput-root': { backgroundColor: '#f0fdfa', borderRadius: '12px' } }}
                                     InputProps={{ ...params.InputProps, endAdornment: ( <React.Fragment> {loadingProd ? <CircularProgress color="inherit" size={20} /> : null} {params.InputProps.endAdornment} </React.Fragment> ) }} 
                                 /> )}
@@ -224,6 +267,7 @@ const ProdutoPorFornecedor = () => {
                                         <th className="px-4 py-4 w-10"> <Checkbox size="small" onChange={(e) => handleSelectAll(e.target.checked)} checked={notas.length > 0 && selectedNotas.length === notas.length} sx={{ '&.Mui-checked': { color: '#0d9488' } }} /> </th>
                                         <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Doc..</th>
                                         <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-center">Data</th>
+                                        <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Natureza</th>
                                         <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] text-right">Valor</th>
                                     </tr>
                                 </thead>
@@ -238,6 +282,12 @@ const ProdutoPorFornecedor = () => {
                                                        <div className="flex flex-col"> <span>{nota.doc}</span> {!selectedFornecedor && <span className="text-[9px] text-slate-400 font-bold max-w-[150px] truncate">{nota.nome}</span>} </div>
                                                     </td>
                                                     <td className="px-4 py-4 text-center text-sm font-bold text-slate-500">{dayjs(nota.emissao).format('DD/MM/YYYY')}</td>
+                                                    <td className="px-4 py-4">
+                                                        <div className="flex flex-col">
+                                                            <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">{nota.natureza}</span>
+                                                            <span className="text-[9px] text-slate-400 truncate max-w-[120px]">{nota.descNatureza}</span>
+                                                        </div>
+                                                    </td>
                                                     <td className="px-4 py-4 text-right"><span className="text-base font-black">{formatCurrency(nota.valor)}</span></td>
                                                 </tr>
                                             );

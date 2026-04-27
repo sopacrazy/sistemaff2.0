@@ -9,6 +9,31 @@ module.exports = (getPool) => {
     return `${dataString.substring(0, 4)}-${dataString.substring(4, 6)}-${dataString.substring(6, 8)}`;
   };
 
+  router.get("/naturezas", async (req, res) => {
+    const pool = getPool();
+    if (!pool) return res.status(503).json({ error: "Servidor fora de serviço." });
+    
+    const QUERY = `
+      SELECT DISTINCT 
+        RTRIM(E2.E2_NATUREZ) AS CODIGO, 
+        RTRIM(ISNULL(ED.ED_DESCRIC, 'SEM DESCRICAO')) AS DESCRICAO
+      FROM SE2140 E2
+      LEFT JOIN SED140 ED ON ED.ED_CODIGO = E2.E2_NATUREZ AND ED.D_E_L_E_T_ = ''
+      WHERE E2.E2_FILIAL = '01' AND E2.D_E_L_E_T_ = '' AND E2.E2_NATUREZ <> ''
+      ORDER BY CODIGO ASC
+    `;
+
+    try {
+      const result = await pool.request().query(QUERY);
+      res.json(result.recordset.map(r => ({
+        id: r.CODIGO,
+        label: `${r.CODIGO} - ${r.DESCRICAO}`
+      })));
+    } catch (err) {
+      res.status(500).json({ error: "Erro SQL", details: err.message });
+    }
+  });
+
   router.get("/fornecedores", async (req, res) => {
     const pool = getPool();
     if (!pool) return res.status(503).json({ error: "Servidor fora de serviço." });
@@ -42,24 +67,32 @@ module.exports = (getPool) => {
   router.get("/fornecedor/:fornece/notas", async (req, res) => {
     const pool = getPool();
     if (!pool) return res.status(503).json({ error: "Servidor fora de serviço." });
-    const { filial = "01", dataDe, dataAte } = req.query;
+    const { filial = "01", dataDe, dataAte, natureza } = req.query;
     const { fornece } = req.params;
 
     let QUERY = `
-      SELECT F1_FILIAL, F1_DOC, F1_SERIE, F1_FORNECE, F1_NOMFOR, F1_EMISSAO, CAST(F1_VALMERC AS DECIMAL(18,2)) AS F1_VALMERC 
-      FROM SF1140 
-      WHERE F1_FILIAL = @filial AND F1_FORNECE = @fornece AND D_E_L_E_T_ = ''
+      SELECT DISTINCT 
+        F1.F1_FILIAL, F1.F1_DOC, F1.F1_SERIE, F1.F1_FORNECE, F1.F1_NOMFOR, F1.F1_EMISSAO, 
+        CAST(F1.F1_VALMERC AS DECIMAL(18,2)) AS F1_VALMERC,
+        RTRIM(E2.E2_NATUREZ) AS NATUREZA,
+        RTRIM(ISNULL(ED.ED_DESCRIC, '')) AS DESC_NATUREZA
+      FROM SF1140 F1
+      INNER JOIN SE2140 E2 ON E2.E2_FILIAL = F1.F1_FILIAL AND E2.E2_NUM = F1.F1_DOC AND E2.E2_PREFIXO = F1.F1_SERIE AND E2.E2_FORNECE = F1.F1_FORNECE AND E2.E2_LOJA = F1.F1_LOJA AND E2.D_E_L_E_T_ = ''
+      LEFT JOIN SED140 ED ON ED.ED_CODIGO = E2.E2_NATUREZ AND ED.D_E_L_E_T_ = ''
+      WHERE F1.F1_FILIAL = @filial AND F1.F1_FORNECE = @fornece AND F1.D_E_L_E_T_ = ''
     `;
 
-    if (dataDe) QUERY += ` AND F1_EMISSAO >= @dataDe`;
-    if (dataAte) QUERY += ` AND F1_EMISSAO <= @dataAte`;
+    if (natureza) QUERY += ` AND E2.E2_NATUREZ = @natureza `;
+    if (dataDe) QUERY += ` AND F1.F1_EMISSAO >= @dataDe`;
+    if (dataAte) QUERY += ` AND F1.F1_EMISSAO <= @dataAte`;
 
-    QUERY += ` ORDER BY F1_EMISSAO DESC`;
+    QUERY += ` ORDER BY F1.F1_EMISSAO DESC`;
 
     try {
       const request = pool.request();
       request.input("filial", sql.VarChar, filial);
       request.input("fornece", sql.VarChar, fornece);
+      if (natureza) request.input("natureza", sql.VarChar, natureza);
       if (dataDe) request.input("dataDe", sql.VarChar, dataDe.replace(/-/g, ''));
       if (dataAte) request.input("dataAte", sql.VarChar, dataAte.replace(/-/g, ''));
 
@@ -71,7 +104,9 @@ module.exports = (getPool) => {
         fornece: r.F1_FORNECE ? r.F1_FORNECE.trim() : "",
         nome: r.F1_NOMFOR ? r.F1_NOMFOR.trim() : "",
         emissao: formatarDataDoProtheus(r.F1_EMISSAO),
-        valor: parseFloat(r.F1_VALMERC || 0)
+        valor: parseFloat(r.F1_VALMERC || 0),
+        natureza: r.NATUREZA,
+        descNatureza: r.DESC_NATUREZA
       }));
       res.json(formattedData);
     } catch (err) {
@@ -171,24 +206,32 @@ module.exports = (getPool) => {
     const pool = getPool();
     if (!pool) return res.status(503).json({ error: "Servidor fora de serviço." });
     const { cod } = req.params;
-    const { filial = "01", dataDe, dataAte } = req.query;
+    const { filial = "01", dataDe, dataAte, natureza } = req.query;
 
     let QUERY = `
-      SELECT DISTINCT F1.F1_FILIAL, F1.F1_DOC, F1.F1_SERIE, F1.F1_FORNECE, F1.F1_NOMFOR, F1.F1_EMISSAO, CAST(F1.F1_VALMERC AS DECIMAL(18,2)) AS F1_VALMERC 
+      SELECT DISTINCT 
+        F1.F1_FILIAL, F1.F1_DOC, F1.F1_SERIE, F1.F1_FORNECE, F1.F1_NOMFOR, F1.F1_EMISSAO, 
+        CAST(F1.F1_VALMERC AS DECIMAL(18,2)) AS F1_VALMERC,
+        RTRIM(E2.E2_NATUREZ) AS NATUREZA,
+        RTRIM(ISNULL(ED.ED_DESCRIC, '')) AS DESC_NATUREZA
       FROM SF1140 F1
       INNER JOIN SD1140 D1 ON D1.D1_DOC = F1.F1_DOC AND D1.D1_SERIE = F1.F1_SERIE AND D1.D1_FORNECE = F1.F1_FORNECE AND D1.D1_FILIAL = F1.F1_FILIAL
+      INNER JOIN SE2140 E2 ON E2.E2_FILIAL = F1.F1_FILIAL AND E2.E2_NUM = F1.F1_DOC AND E2.E2_PREFIXO = F1.F1_SERIE AND E2.E2_FORNECE = F1.F1_FORNECE AND E2.E2_LOJA = F1.F1_LOJA AND E2.D_E_L_E_T_ = ''
+      LEFT JOIN SED140 ED ON ED.ED_CODIGO = E2.E2_NATUREZ AND ED.D_E_L_E_T_ = ''
       WHERE F1.F1_FILIAL = @filial AND D1.D1_COD = @cod AND F1.D_E_L_E_T_ = '' AND D1.D_E_L_E_T_ = ''
     `;
 
-    if (dataDe) QUERY += ` AND D1.D1_EMISSAO >= @dataDe`;
-    if (dataAte) QUERY += ` AND D1.D1_EMISSAO <= @dataAte`;
+    if (natureza) QUERY += ` AND E2.E2_NATUREZ = @natureza `;
+    if (dataDe) QUERY += ` AND F1.F1_EMISSAO >= @dataDe`;
+    if (dataAte) QUERY += ` AND F1.F1_EMISSAO <= @dataAte`;
 
-    QUERY += ` ORDER BY D1.D1_EMISSAO DESC`;
+    QUERY += ` ORDER BY F1.F1_EMISSAO DESC`;
 
     try {
       const request = pool.request();
       request.input("filial", sql.VarChar, filial);
       request.input("cod", sql.VarChar, cod);
+      if (natureza) request.input("natureza", sql.VarChar, natureza);
       if (dataDe) request.input("dataDe", sql.VarChar, dataDe.replace(/-/g, ''));
       if (dataAte) request.input("dataAte", sql.VarChar, dataAte.replace(/-/g, ''));
 
@@ -200,7 +243,57 @@ module.exports = (getPool) => {
         fornece: r.F1_FORNECE ? r.F1_FORNECE.trim() : "",
         nome: r.F1_NOMFOR ? r.F1_NOMFOR.trim() : "",
         emissao: formatarDataDoProtheus(r.F1_EMISSAO),
-        valor: parseFloat(r.F1_VALMERC || 0)
+        valor: parseFloat(r.F1_VALMERC || 0),
+        natureza: r.NATUREZA,
+        descNatureza: r.DESC_NATUREZA
+      }));
+      res.json(formattedData);
+    } catch (err) {
+      res.status(500).json({ error: "Erro SQL", details: err.message });
+    }
+  });
+
+  router.get("/notas", async (req, res) => {
+    const pool = getPool();
+    if (!pool) return res.status(503).json({ error: "Servidor fora de serviço." });
+    const { filial = "01", dataDe, dataAte, natureza } = req.query;
+
+    let QUERY = `
+      SELECT DISTINCT 
+        F1.F1_FILIAL, F1.F1_DOC, F1.F1_SERIE, F1.F1_FORNECE, F1.F1_NOMFOR, F1.F1_EMISSAO, 
+        CAST(F1.F1_VALMERC AS DECIMAL(18,2)) AS F1_VALMERC,
+        RTRIM(E2.E2_NATUREZ) AS NATUREZA,
+        RTRIM(ISNULL(ED.ED_DESCRIC, '')) AS DESC_NATUREZA
+      FROM SF1140 F1
+      INNER JOIN SE2140 E2 ON E2.E2_FILIAL = F1.F1_FILIAL AND E2.E2_NUM = F1.F1_DOC AND E2.E2_PREFIXO = F1.F1_SERIE AND E2.E2_FORNECE = F1.F1_FORNECE AND E2.E2_LOJA = F1.F1_LOJA AND E2.D_E_L_E_T_ = ''
+      LEFT JOIN SED140 ED ON ED.ED_CODIGO = E2.E2_NATUREZ AND ED.D_E_L_E_T_ = ''
+      WHERE F1.F1_FILIAL = @filial AND F1.D_E_L_E_T_ = ''
+    `;
+
+    if (natureza) QUERY += ` AND E2.E2_NATUREZ = @natureza `;
+    if (dataDe) QUERY += ` AND F1.F1_EMISSAO >= @dataDe`;
+    if (dataAte) QUERY += ` AND F1.F1_EMISSAO <= @dataAte`;
+
+    QUERY += ` ORDER BY F1.F1_EMISSAO DESC`;
+
+    try {
+      const request = pool.request();
+      request.input("filial", sql.VarChar, filial);
+      if (natureza) request.input("natureza", sql.VarChar, natureza);
+      if (dataDe) request.input("dataDe", sql.VarChar, dataDe.replace(/-/g, ''));
+      if (dataAte) request.input("dataAte", sql.VarChar, dataAte.replace(/-/g, ''));
+
+      const result = await request.query(QUERY);
+      const formattedData = result.recordset.map((r) => ({
+        filial: r.F1_FILIAL ? r.F1_FILIAL.trim() : "",
+        doc: r.F1_DOC ? r.F1_DOC.trim() : "",
+        serie: r.F1_SERIE ? r.F1_SERIE.trim() : "",
+        fornece: r.F1_FORNECE ? r.F1_FORNECE.trim() : "",
+        nome: r.F1_NOMFOR ? r.F1_NOMFOR.trim() : "",
+        emissao: formatarDataDoProtheus(r.F1_EMISSAO),
+        valor: parseFloat(r.F1_VALMERC || 0),
+        natureza: r.NATUREZA,
+        descNatureza: r.DESC_NATUREZA
       }));
       res.json(formattedData);
     } catch (err) {

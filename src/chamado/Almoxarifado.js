@@ -6,6 +6,45 @@ import { TextField, Autocomplete, Tooltip } from "@mui/material";
 import dayjs from "dayjs";
 import debounce from "lodash.debounce";
 
+// Estilo costumizado para os inputs MUI movido para fora para evitar perda de foco
+const textFieldStyles = {
+    "& .MuiOutlinedInput-root": {
+        borderRadius: "0.75rem",
+        backgroundColor: "transparent",
+        paddingLeft: "36px",
+        transition: "all 0.2s",
+        "& fieldset": { borderColor: "#e2e8f0" },
+        "&:hover fieldset": { borderColor: "#cbd5e1" },
+        "&.Mui-focused fieldset": { borderColor: "#3b82f6", borderWidth: "2px" },
+    },
+    ".dark & .MuiOutlinedInput-root": {
+        "& fieldset": { borderColor: "#475569" },
+        "&:hover fieldset": { borderColor: "#64748b" },
+    },
+    "& .MuiInputBase-input": {
+        padding: "10px 14px 10px 42px !important",
+        color: "#1e293b !important",
+    },
+    ".dark & .MuiInputBase-input": {
+        color: "#f8fafc !important",
+    }
+};
+
+const qdtFieldStyles = {
+    ...textFieldStyles,
+    "& .MuiOutlinedInput-root": {
+        ...textFieldStyles["& .MuiOutlinedInput-root"],
+        paddingLeft: "10px", // Less padding for QTD
+    },
+    "& .MuiInputBase-input": {
+        padding: "10px 14px !important",
+        color: "#1e293b !important",
+    },
+    ".dark & .MuiInputBase-input": {
+        color: "#f8fafc !important",
+    }
+};
+
 const Almoxarifado = () => {
     const [subTab, setSubTab] = useState('solicitar');
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -15,11 +54,13 @@ const Almoxarifado = () => {
     const username = sessionStorage.getItem("username") || "sistema";
     const userSetor = sessionStorage.getItem("setor") || "";
 
+    const generateId = () => Math.random().toString(36).substr(2, 9);
+
     // Estado do formulário
     const [formData, setFormData] = useState({
         dataEntrega: dayjs().format('YYYY-MM-DD'),
         observacao: '',
-        items: [{ codigo: '', descricao: '', quantidade: 1 }]
+        items: [{ id: generateId(), codigo: '', descricao: '', quantidade: '' }]
     });
 
     // --- Busca de Produtos ---
@@ -29,8 +70,9 @@ const Almoxarifado = () => {
             const res = await axios.get(`${API_BASE_URL}/chamados/almo-produtos`, {
                 params: { search: term.toUpperCase() }
             });
-            const produtos = res.data.map((p) => ({
+            const produtos = res.data.map((p, idx) => ({
                 ...p,
+                uniqueKey: `${p.codigo || idx}-${idx}`,
                 descricao: p.descricao,
                 codigo: p.codigo,
                 unidade: p.unidade || "",
@@ -50,7 +92,6 @@ const Almoxarifado = () => {
     const fetchHistorico = async () => {
         setLoadingHistorico(true);
         try {
-            // Nova rota interna mapeada no chamadoRoutes
             const response = await axios.get(`${API_BASE_URL}/chamados/almo-solicitacoes/${username}`);
             setHistorico(response.data);
         } catch (error) {
@@ -68,40 +109,46 @@ const Almoxarifado = () => {
     }, [subTab]);
 
     // --- Manipulação do Formulário ---
-    const handleItemChange = (index, field, value) => {
-        const newItems = [...formData.items];
-        newItems[index][field] = value;
-        setFormData(prev => ({ ...prev, items: newItems }));
+    const handleItemChange = (itemId, field, value) => {
+        setFormData(prev => {
+            const newItems = prev.items.map(item => 
+                item.id === itemId ? { ...item, [field]: value } : item
+            );
+            return { ...prev, items: newItems };
+        });
     };
 
     const addItem = () => {
         setFormData(prev => ({
             ...prev,
-            items: [...prev.items, { codigo: '', descricao: '', quantidade: 1 }]
+            items: [...prev.items, { id: generateId(), codigo: '', descricao: '', quantidade: '' }]
         }));
     };
 
-    const removeItem = (index) => {
+    const removeItem = (itemId) => {
         if (formData.items.length === 1) return;
-        const newItems = formData.items.filter((_, i) => i !== index);
-        setFormData(prev => ({ ...prev, items: newItems }));
+        setFormData(prev => ({
+            ...prev,
+            items: prev.items.filter(item => item.id !== itemId)
+        }));
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        // Validações
         if (!formData.dataEntrega) {
             Swal.fire('Erro', 'Data da entrega é obrigatória', 'warning');
             return;
         }
+        /* 
         if (!formData.observacao.trim()) {
             Swal.fire('Erro', 'O campo observação é obrigatório para informar o destino', 'warning');
             return;
         }
-        const itemsValidos = formData.items.every(item => item.descricao && item.quantidade > 0);
+        */
+        const itemsValidos = formData.items.every(item => item.descricao && Number(item.quantidade) > 0);
         if (!itemsValidos) {
-            Swal.fire('Erro', 'Todos os itens precisam de descrição e quantidade', 'warning');
+            Swal.fire('Erro', 'Todos os itens precisam de descrição e quantidade válida', 'warning');
             return;
         }
 
@@ -110,13 +157,12 @@ const Almoxarifado = () => {
             const payload = {
                 usuario: username,
                 setor: userSetor,
-                local: "TI/SISTEMA", // Informação de quem está preenchendo ou de onde partiu
+                local: userSetor || "NÃO INFORMADO",
                 data_entrega: formData.dataEntrega,
                 observacao: formData.observacao,
-                itens: formData.items // Passa o array diretamente pq o backend agrupa via node
+                itens: formData.items.map(i => ({ ...i, quantidade: Number(i.quantidade) }))
             };
 
-            // Post para nova rota interna no server.js (chamadoRoutes)
             await axios.post(`${API_BASE_URL}/chamados/almo-solicitacoes`, payload);
 
             Swal.fire({
@@ -126,17 +172,16 @@ const Almoxarifado = () => {
                 confirmButtonColor: '#10b981'
             });
 
-            // Reseta form
             setFormData({
                 dataEntrega: dayjs().format('YYYY-MM-DD'),
                 observacao: '',
-                items: [{ codigo: '', descricao: '', quantidade: 1 }]
+                items: [{ id: generateId(), codigo: '', descricao: '', quantidade: '' }]
             });
             setSubTab('historico');
 
         } catch (error) {
             console.error("Erro ao enviar pedido:", error);
-            Swal.fire('Erro', 'Não foi possível enviar o pedido. Tente novamente mais tarde.', 'error');
+            Swal.fire('Erro', 'Não foi possível enviar o pedido.', 'error');
         } finally {
             setIsSubmitting(false);
         }
@@ -151,38 +196,8 @@ const Almoxarifado = () => {
         }
     };
 
-    // Estilo costumizado para os inputs MUI para combinar com o modal original
-    const textFieldStyles = {
-        "& .MuiOutlinedInput-root": {
-            borderRadius: "0.75rem",
-            backgroundColor: "transparent",
-            paddingLeft: "36px",
-            transition: "all 0.2s",
-            "& fieldset": { borderColor: "#e2e8f0" },
-            "&:hover fieldset": { borderColor: "#cbd5e1" },
-            "&.Mui-focused fieldset": { borderColor: "#3b82f6", borderWidth: "2px" },
-        },
-        ".dark & .MuiOutlinedInput-root": {
-            "& fieldset": { borderColor: "#475569" },
-            "&:hover fieldset": { borderColor: "#64748b" },
-        },
-        "& .MuiInputBase-input": {
-            padding: "10px 14px 10px 42px !important",
-            color: "inherit"
-        }
-    };
-
-    const qdtFieldStyles = {
-        ...textFieldStyles,
-        "& .MuiOutlinedInput-root": {
-            ...textFieldStyles["& .MuiOutlinedInput-root"],
-            paddingLeft: "10px", // Less padding for QTD
-        }
-    }
-
     return (
         <div className="flex flex-col h-full bg-transparent">
-            {/* Sub Tabs */}
             <div className="flex border-b border-slate-200 dark:border-slate-700 px-6 bg-transparent">
                 <button
                     onClick={() => setSubTab('solicitar')}
@@ -214,7 +229,6 @@ const Almoxarifado = () => {
                 {subTab === 'solicitar' ? (
                     <div className="p-8 max-w-2xl mx-auto animate-in fade-in duration-200">
                         <form onSubmit={handleSubmit} className="space-y-5">
-                            {/* Header do Form */}
                             <div className="grid grid-cols-1 gap-5">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
@@ -233,7 +247,6 @@ const Almoxarifado = () => {
                                 </div>
                             </div>
 
-                            {/* Itens */}
                             <div className="space-y-4 pt-2">
                                 <div className="flex justify-between items-center">
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -250,8 +263,8 @@ const Almoxarifado = () => {
                                 </div>
 
                                 <div className="space-y-3">
-                                    {formData.items.map((item, index) => (
-                                        <div key={index} className="flex flex-col md:flex-row gap-3 relative group">
+                                    {formData.items.map((item) => (
+                                        <div key={item.id} className="flex flex-col md:flex-row gap-3 relative group">
                                             <div className="flex-1 relative">
                                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 material-symbols-rounded text-lg z-10 pointer-events-none">inventory_2</span>
                                                 <Autocomplete
@@ -261,7 +274,7 @@ const Almoxarifado = () => {
                                                     renderOption={(props, option) => {
                                                         const { key, ...restProps } = props;
                                                         return (
-                                                            <li key={key || option.codigo} {...restProps} className="px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer flex flex-col items-start text-sm">
+                                                            <li key={option.uniqueKey} {...restProps} className="px-4 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer flex flex-col items-start text-sm">
                                                                 <span className="text-slate-700 dark:text-slate-300 font-medium">{option.descricao}</span>
                                                                 <span className="text-xs font-bold font-mono text-slate-500 bg-slate-200/50 dark:bg-slate-700/50 px-2 py-0.5 rounded mt-1">
                                                                     Cód: {option.codigo}
@@ -271,13 +284,13 @@ const Almoxarifado = () => {
                                                     }}
                                                     onInputChange={(_, newValue) => {
                                                         const upper = newValue.toUpperCase();
-                                                        handleItemChange(index, 'descricao', upper);
+                                                        handleItemChange(item.id, 'descricao', upper);
                                                         debouncedFetchProdutos(upper);
                                                     }}
                                                     onChange={(_, newValue) => {
                                                         if (newValue && typeof newValue === 'object') {
-                                                            handleItemChange(index, 'descricao', newValue.descricao);
-                                                            handleItemChange(index, 'codigo', newValue.codigo);
+                                                            handleItemChange(item.id, 'descricao', newValue.descricao);
+                                                            handleItemChange(item.id, 'codigo', newValue.codigo);
                                                         }
                                                     }}
                                                     renderInput={(params) => (
@@ -294,22 +307,25 @@ const Almoxarifado = () => {
                                             </div>
                                             <div className="w-full md:w-32 flex gap-2">
                                                 <div className="relative flex-1">
-                                                    <TextField
+                                                    <input
+                                                        type="text"
                                                         placeholder="Qtd"
-                                                        type="number"
                                                         required
-                                                        size="small"
-                                                        value={item.quantidade}
-                                                        onChange={(e) => handleItemChange(index, 'quantidade', e.target.value)}
-                                                        inputProps={{ min: 1, style: { paddingLeft: "14px" } }}
-                                                        sx={qdtFieldStyles}
-                                                        className="bg-white dark:bg-slate-800 rounded-xl w-full"
+                                                        value={item.quantidade || ''}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            if (val === '' || /^[0-9]+$/.test(val)) {
+                                                                handleItemChange(item.id, 'quantidade', val);
+                                                            }
+                                                        }}
+                                                        className="w-full px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white text-center font-bold"
+                                                        style={{ height: '40px' }}
                                                     />
                                                 </div>
                                                 {formData.items.length > 1 && (
                                                     <button
                                                         type="button"
-                                                        onClick={() => removeItem(index)}
+                                                        onClick={() => removeItem(item.id)}
                                                         className="p-2.5 text-slate-400 hover:text-red-500 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-xl transition-colors shrink-0"
                                                         title="Remover Item"
                                                     >
@@ -322,15 +338,13 @@ const Almoxarifado = () => {
                                 </div>
                             </div>
 
-                            {/* Observação */}
                             <div className="pt-2">
                                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                                    Observação / Destino <span className="text-red-500">*</span>
+                                    Observação
                                 </label>
                                 <div className="relative">
                                     <span className="absolute left-3 top-3 text-slate-400 material-symbols-rounded text-lg">description</span>
                                     <textarea
-                                        required
                                         rows="3"
                                         placeholder="Informe para onde vai o item ou detalhes adicionais..."
                                         value={formData.observacao}

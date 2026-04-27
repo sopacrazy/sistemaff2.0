@@ -44,6 +44,8 @@ import MotoristasPage from "./frota/MotoristasPage";
 import ManutencaoPage from "./frota/ManutencaoPage";
 import ManutencaoHome from "./frota/ManutencaoHome";
 import ManutencaoDashboard from "./frota/ManutencaoDashboard";
+import Abastecimento from "./frota/Abastecimento";
+import Cadastrodeveiculos from "./frota/Cadastrodeveiculos";
 import RequireGestor from "./routes/RequireGestor";
 import RequireRH from "./routes/RequireRH";
 import RequirePermission from "./routes/RequirePermission";
@@ -538,6 +540,26 @@ const App = () => {
                   <PrivateRoute>
                     <RequirePermission permission="FROTA">
                       <ManutencaoDashboard />
+                    </RequirePermission>
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/frota/abastecimento"
+                element={
+                  <PrivateRoute>
+                    <RequirePermission permission="FROTA">
+                      <Abastecimento />
+                    </RequirePermission>
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/frota/veiculos"
+                element={
+                  <PrivateRoute>
+                    <RequirePermission permission="FROTA">
+                      <Cadastrodeveiculos />
                     </RequirePermission>
                   </PrivateRoute>
                 }

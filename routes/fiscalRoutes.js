@@ -1,7 +1,7 @@
 const express = require("express");
 const sql = require("mssql");
 
-module.exports = (getPool) => {
+module.exports = (getPool, dbMySQL) => {
 
 
   const router = express.Router();
@@ -505,9 +505,36 @@ module.exports = (getPool) => {
     const pool = getPool();
     if (!pool) return res.status(503).json({ error: "Sem conexão DB" });
 
-    const { dataInicio, dataFim, nota, filial = "01" } = req.body;
+    const { dataInicio, dataFim, nota, filial = "01", tipoPessoa } = req.body;
 
-    let filtros = ` WHERE F3.F3_FILIAL = @filial AND F3.D_E_L_E_T_ = '' AND D1.D1_TES IN ('130','141') `;
+    // 🆕 Buscar configurações do MySQL primeiro
+    let inssP = 0.0120;
+    let gilratP = 0.0010;
+    let senarP = 0.0020;
+    let listTES = "'130','141','222','224','225'";
+
+    try {
+      if (dbMySQL) {
+        const [configRows] = await dbMySQL.promise().query("SELECT * FROM fiscal_config WHERE id = 1");
+        if (configRows.length > 0) {
+          inssP = parseFloat(configRows[0].inss_percent);
+          gilratP = parseFloat(configRows[0].gilrat_percent);
+          senarP = parseFloat(configRows[0].senar_percent);
+          if (configRows[0].tes_list !== null) {
+            const raw = configRows[0].tes_list.trim();
+            listTES = raw ? raw.split(',').map(t => `'${t.trim()}'`).join(',') : "";
+          }
+        }
+      }
+    } catch (errConfig) {
+      console.error("Erro ao buscar config fiscal, usando padrões:", errConfig);
+    }
+
+    let filtros = ` WHERE F3.F3_FILIAL = @filial AND F3.D_E_L_E_T_ = '' `;
+
+    if (listTES && listTES !== "''") {
+      filtros += ` AND D1.D1_TES IN (${listTES}) `;
+    }
 
     if (nota) {
       filtros += ` AND F3.F3_NFISCAL = @nota `;
@@ -520,6 +547,10 @@ module.exports = (getPool) => {
       filtros += ` AND D1.D1_EMISSAO BETWEEN '${dIni}' AND '${dFim}' `;
     }
 
+    if (tipoPessoa && tipoPessoa !== "TODOS") {
+      filtros += ` AND SA2.A2_TIPO = '${tipoPessoa}' `;
+    }
+
     const QUERY_FUNRURAL = `
       SELECT 
           F3.F3_FILIAL,
@@ -529,6 +560,9 @@ module.exports = (getPool) => {
           F3.F3_CLIEFOR,
           F3.F3_LOJA,
           F3.F3_VALCONT,
+          SA2.A2_NOME,
+          SA2.A2_CGC,
+          SA2.A2_TIPO,
           MAX(D1.D1_TES) as TES_USADA
       FROM SF3140 F3
       INNER JOIN SD1140 D1
@@ -538,6 +572,11 @@ module.exports = (getPool) => {
          AND D1.D1_FORNECE = F3.F3_CLIEFOR
          AND D1.D1_LOJA    = F3.F3_LOJA
          AND D1.D_E_L_E_T_ = ''
+      LEFT JOIN SA2140 SA2
+          ON SA2.A2_FILIAL = F3.F3_FILIAL
+         AND SA2.A2_COD    = F3.F3_CLIEFOR
+         AND SA2.A2_LOJA   = F3.F3_LOJA
+         AND SA2.D_E_L_E_T_ = ''
       ${filtros}
       GROUP BY 
           F3.F3_FILIAL,
@@ -546,11 +585,15 @@ module.exports = (getPool) => {
           F3.F3_SERIE,
           F3.F3_CLIEFOR,
           F3.F3_LOJA,
-          F3.F3_VALCONT
+          F3.F3_VALCONT,
+          SA2.A2_NOME,
+          SA2.A2_CGC,
+          SA2.A2_TIPO
       ORDER BY F3.F3_ENTRADA, F3.F3_NFISCAL
     `;
 
     try {
+
       const request = pool.request();
       if (nota) request.input("nota", sql.VarChar, nota);
       // dIni e dFim agora vão direto pro filtros string se nota não existir
@@ -566,14 +609,21 @@ module.exports = (getPool) => {
           nota: row.F3_NFISCAL.trim(),
           serie: row.F3_SERIE.trim(),
           cliefor: row.F3_CLIEFOR.trim(),
+          nomeFornecedor: row.A2_NOME ? row.A2_NOME.trim() : row.F3_CLIEFOR.trim(),
+          cgc: row.A2_CGC ? row.A2_CGC.trim() : "N/A",
+          tipoFornecedor: row.A2_TIPO ? row.A2_TIPO.trim() : "J",
           loja: row.F3_LOJA.trim(),
           total: base,
           base: base,
           tes: row.TES_USADA,
-          inss: base * 0.012,
-          gilrat: base * 0.001,
-          senar: base * 0.002,
-          valorFunrural: base * (0.012 + 0.001 + 0.002)
+          inss: base * inssP,
+          gilrat: base * gilratP,
+          senar: base * senarP,
+          valorFunrural: base * (inssP + gilratP + senarP),
+          // 🆕 Porcentagens usadas (para o front mostrar no label)
+          percInss: inssP,
+          percGilrat: gilratP,
+          percSenar: senarP
         };
       });
 

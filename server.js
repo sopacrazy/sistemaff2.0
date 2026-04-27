@@ -42,6 +42,7 @@ const geralRoutes = require("./routes/geral");
 const clientesRoute = require("./routes/clientes");
 const chamadoRoutes = require("./routes/chamadoRoutes");
 const relatoriosPublicRoutes = require("./routes/relatoriosPublicRoutes");
+const frotaAbastecimento = require("./routes/frotaAbastecimento");
 
 const generateFiadoVendedorSinteticoReport = require("./src/Financeiro/routes/generateFiadoVendedorSinteticoReport");
 const generateFiadoVendedorAnaliticoReport = require("./src/Financeiro/routes/generateReport");
@@ -258,9 +259,33 @@ dbOcorrencias.getConnection((err, connection) => {
     logger.info(
       `Conectado ao banco OCORRÊNCIAS com sucesso! (Host: ${process.env.DB_HOST_OCORRENCIAS})`
     );
+
+    // 🆕 Inicializar Tabela de Configuração Fiscal
+    connection.query(`
+       CREATE TABLE IF NOT EXISTS fiscal_config (
+        id INT PRIMARY KEY DEFAULT 1,
+        inss_percent DECIMAL(10,4) DEFAULT 0.0120,
+        gilrat_percent DECIMAL(10,4) DEFAULT 0.0010,
+        senar_percent DECIMAL(10,4) DEFAULT 0.0020,
+        tes_list VARCHAR(255) DEFAULT '130,141,222,224,225',
+        CONSTRAINT single_row CHECK (id = 1)
+       )
+    `, (err) => {
+      if (err) logger.error("Erro ao criar tabela fiscal_config:", err);
+      else {
+        // Garantir registro inicial se não existir
+        connection.query(`
+          INSERT IGNORE INTO fiscal_config (id, inss_percent, gilrat_percent, senar_percent, tes_list) 
+          VALUES (1, 0.0120, 0.0010, 0.0020, '130,141,222,224,225')
+        `);
+      }
+    });
+
     connection.release();
   }
 });
+
+
 
 const checkPermission = require("./middleware/checkPermission")(dbOcorrencias);
 
@@ -357,6 +382,36 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
+
+// -----------------------------------------------------------------
+// 🆕 ROTAS DE CONFIGURAÇÃO FISCAL
+// -----------------------------------------------------------------
+app.get("/api/fiscal/config", async (req, res) => {
+  try {
+    const [rows] = await dbOcorrencias.promise().query("SELECT inss_percent, gilrat_percent, senar_percent, tes_list FROM fiscal_config WHERE id = 1");
+    if (rows.length === 0) {
+      return res.json({ inss_percent: 0.0120, gilrat_percent: 0.0010, senar_percent: 0.0020, tes_list: '130,141,222,224,225' });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("Erro ao buscar config fiscal:", err);
+    res.status(500).json({ erro: "Erro ao buscar config fiscal." });
+  }
+});
+
+app.put("/api/fiscal/config", async (req, res) => {
+  const { inss_percent, gilrat_percent, senar_percent, tes_list } = req.body;
+  try {
+    await dbOcorrencias.promise().query(
+      "UPDATE fiscal_config SET inss_percent = ?, gilrat_percent = ?, senar_percent = ?, tes_list = ? WHERE id = 1",
+      [inss_percent, gilrat_percent, senar_percent, tes_list]
+    );
+    res.json({ sucesso: true });
+  } catch (err) {
+    console.error("Erro ao atualizar config fiscal:", err);
+    res.status(500).json({ erro: "Erro ao atualizar config fiscal." });
+  }
+});
 
 // ============================================
 // RATE LIMITING - Proteção contra ataques
@@ -771,6 +826,7 @@ app.use("/api", clientesRoute);
 app.use("/chamados", chamadoRoutes(dbOcorrencias, notifyUserByUsername));
 app.use("/", exportarTransferencias);
 app.use("/api", abastecimentoRoutes(dbOcorrencias, mssqlPool));
+app.use("/api/frota/abastecimento", authenticateToken, frotaAbastecimento(dbOcorrencias));
 app.get("/api/debug-ws", (req, res) => {
   const online = {};
   usuariosOnlineMulti.forEach((set, user) => {
@@ -819,7 +875,7 @@ app.use("/relatorios-public", relatoriosPublicRoutes(dbOcorrencias)); // ✅ est
 app.use("/relatorios-public", relatoriosPublicRoutes(dbOcorrencias)); // ✅ esta
 app.use("/roteirizacao", roteirizacaoRoutes);
 app.use("/frota", frotaRoutes(dbRegistros, dbOcorrencias));
-app.use("/api", fiscalRoutes(() => mssqlPool));
+app.use("/api", fiscalRoutes(() => mssqlPool, dbOcorrencias));
 app.use("/api/compras", comprasRoutes(() => mssqlPool));
 app.use("/api/vendas-report", vendasReportRoutes(() => mssqlPool));
 app.use("/api/basquetas", basquetaRoutes(dbOcorrencias, () => mssqlPool));

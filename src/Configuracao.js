@@ -70,7 +70,7 @@ const rotinasSystem = [
 const SETORES = [
   "RH", "Contabilidade", "T.I", "Financeiro", "Loja", "Distribuidora", 
   "CD", "BPG", "Compras", "Gestão", "Passarela 2", "Passarela 1", 
-  "BTF", "Banana", "Faturamento", "Operacional", "Serviços Gerais"
+  "BTF", "Banana", "Faturamento", "Operacional", "Serviços Gerais", "Estoque"
 ];
 
 // Helper para SweetAlert2 com tema

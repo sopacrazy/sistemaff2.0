@@ -172,7 +172,24 @@ async function inicializarTabelasFinanceiras() {
        )
     `);
 
-    console.log("✅ Tabelas do Financeiro verificadas/criadas com sucesso.");
+    // 6. Tabela de Configuração Fiscal (Funrural)
+    await conn.query(`
+       CREATE TABLE IF NOT EXISTS fiscal_config (
+        id INT PRIMARY KEY DEFAULT 1,
+        inss_percent DECIMAL(10,4) DEFAULT 0.0120,
+        gilrat_percent DECIMAL(10,4) DEFAULT 0.0010,
+        senar_percent DECIMAL(10,4) DEFAULT 0.0020,
+        CONSTRAINT single_row CHECK (id = 1)
+       )
+    `);
+
+    // Inserir valores padrão se não existirem
+    await conn.query(`
+      INSERT IGNORE INTO fiscal_config (id, inss_percent, gilrat_percent, senar_percent) 
+      VALUES (1, 0.0120, 0.0010, 0.0020)
+    `);
+
+    console.log("✅ Tabelas do Financeiro e Fiscal verificadas/criadas com sucesso.");
     conn.release();
   } catch (err) {
     console.error("❌ Erro ao inicializar tabelas financeiras:", err);
@@ -381,6 +398,42 @@ app.post("/api/auth/register-sector", async (req, res) => {
   } catch (err) {
     console.error("Erro ao cadastrar setor:", err);
     res.status(500).json({ erro: "Erro interno ao cadastrar o setor." });
+  } finally {
+    conn.release();
+  }
+});
+
+// -----------------------------------------------------------------
+// 🆕 ROTAS DE CONFIGURAÇÃO FISCAL
+// -----------------------------------------------------------------
+app.get("/api/fiscal/config", async (req, res) => {
+  const conn = await dbMySQL.getConnection();
+  try {
+    const [rows] = await conn.query("SELECT inss_percent, gilrat_percent, senar_percent FROM fiscal_config WHERE id = 1");
+    if (rows.length === 0) {
+      return res.json({ inss_percent: 0.0120, gilrat_percent: 0.0010, senar_percent: 0.0020 });
+    }
+    res.json(rows[0]);
+  } catch (err) {
+    console.error("Erro ao buscar config fiscal:", err);
+    res.status(500).json({ erro: "Erro ao buscar config fiscal." });
+  } finally {
+    conn.release();
+  }
+});
+
+app.put("/api/fiscal/config", async (req, res) => {
+  const { inss_percent, gilrat_percent, senar_percent } = req.body;
+  const conn = await dbMySQL.getConnection();
+  try {
+    await conn.query(
+      "UPDATE fiscal_config SET inss_percent = ?, gilrat_percent = ?, senar_percent = ? WHERE id = 1",
+      [inss_percent, gilrat_percent, senar_percent]
+    );
+    res.json({ sucesso: true });
+  } catch (err) {
+    console.error("Erro ao atualizar config fiscal:", err);
+    res.status(500).json({ erro: "Erro ao atualizar config fiscal." });
   } finally {
     conn.release();
   }

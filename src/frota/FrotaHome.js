@@ -109,7 +109,7 @@ const FrotaHome = () => {
             subtitle: "Cadastro e gestão da frota",
             icon: "directions_car", // or local_shipping
             color: "blue",
-            onClick: () => alert("Módulo de Veículos em desenvolvimento"),
+            onClick: () => navigate("/frota/veiculos"),
             permission: null,
         },
         {
@@ -133,7 +133,7 @@ const FrotaHome = () => {
             subtitle: "Controle de combustível",
             icon: "local_gas_station",
             color: "purple",
-            onClick: () => alert("Módulo de Abastecimento em desenvolvimento"),
+            onClick: () => navigate("/frota/abastecimento"),
             permission: null,
         },
         {
