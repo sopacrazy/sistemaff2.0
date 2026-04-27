@@ -5,7 +5,7 @@ setlocal enabledelayedexpansion
 :: CONFIGURACAO - ajuste conforme necessario
 :: =============================================
 set PASTA_PROJETO=C:\sistemaff2.0
-set NOME_APP_PM2=sistemaff
+set NOME_APP_PM2=server
 
 :: =============================================
 echo.
