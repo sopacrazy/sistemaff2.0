@@ -123,6 +123,7 @@ export const RelatorioFunrural: React.FC<Props> = ({ filial }) => {
       TES: r.tes,
       "Nota Fiscal": r.nota,
       Série: r.serie,
+      "Código": r.cliefor,
       Cliente: r.nomeFornecedor,
       Loja: r.loja,
       "CNPJ/CPF": r.cgc,
