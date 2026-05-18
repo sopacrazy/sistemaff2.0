@@ -12,8 +12,8 @@ import {
   Autocomplete,
   Button, // Added Button
 } from "@mui/material";
-import { getDataTrabalho } from "./utils/dataTrabalho";
 import { API_BASE_URL } from "./utils/apiConfig";
+import AppHeader from "./components/AppHeader";
 
 // Components Reutilizáveis (Header/Modal)
 // Idealmente isso estaria em um arquivo separado, mas vou manter aqui para garantir independência por hora
@@ -48,14 +48,8 @@ const OcorrenciasList = () => {
   // --- HEADER STATE ---
   const [username, setUsername] = useState("");
   const [local, setLocal] = useState("08");
-  const [date] = useState(() => {
-    const saved = getDataTrabalho();
-    return saved ? new Date(saved + "T12:00:00") : new Date();
-  });
   const [isLocalModalOpen, setIsLocalModalOpen] = useState(false);
-  const [isDateModalOpen, setIsDateModalOpen] = useState(false);
   const [tempLocal, setTempLocal] = useState("");
-  const [tempDate, setTempDate] = useState("");
 
   // --- LIST DATA STATE ---
   const [ocorrencias, setOcorrencias] = useState([]);
@@ -215,27 +209,12 @@ const OcorrenciasList = () => {
     sessionStorage.clear();
     navigate("/login");
   };
-  const toggleDarkMode = () =>
-    document.documentElement.classList.toggle("dark");
   // BLOQUEADO: Troca de local só permitida na página Home (Painel de Controle)
   const openLocalModal = () => {
     alert("Para alterar o local, volte ao Painel de Controle (Home).");
   };
   const saveLocal = () => {
     /* Bloqueado */
-  };
-  const openDateModal = () => {
-    const offset = date.getTimezoneOffset();
-    const localDate = new Date(date.getTime() - offset * 60 * 1000);
-    setTempDate(localDate.toISOString().split("T")[0]);
-    setIsDateModalOpen(true);
-  };
-  const saveDate = () => {
-    if (!tempDate) return;
-    const [y, m, d] = tempDate.split("-");
-    const newDate = new Date(y, m - 1, d, 12, 0, 0);
-    setDate(newDate);
-    setIsDateModalOpen(false);
   };
 
   // --- LIST HANDLERS ---
@@ -787,28 +766,6 @@ const OcorrenciasList = () => {
           className="mt-6 w-full py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-green-600/20"
         >
           Salvar
-        </button>
-      </Modal>
-
-      <Modal
-        isOpen={isDateModalOpen}
-        onClose={() => setIsDateModalOpen(false)}
-        title="Alterar Data"
-      >
-        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-          Data de Trabalho:
-        </label>
-        <input
-          type="date"
-          value={tempDate}
-          onChange={(e) => setTempDate(e.target.value)}
-          className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 focus:ring-2 focus:ring-green-500 outline-none transition-all dark:text-white dark:[color-scheme:dark]"
-        />
-        <button
-          onClick={saveDate}
-          className="mt-6 w-full py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-green-600/20"
-        >
-          Confirmar
         </button>
       </Modal>
 
@@ -1377,15 +1334,27 @@ const OcorrenciasList = () => {
                 </div>
               </div>
               <div className="flex items-center gap-4">
-                <div className="text-right">
-                  <p className="text-xs font-bold text-slate-400 uppercase">
-                    Data Abertura
-                  </p>
-                  <p className="font-semibold text-slate-700 dark:text-slate-200">
-                    {viewingOcorrencia.data
-                      ? dayjs(viewingOcorrencia.data).add(12, 'hour').format('DD/MM/YYYY')
-                      : "N/A"}
-                  </p>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-right">
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase leading-none">Data do Pedido</p>
+                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                      {viewingOcorrencia.data ? dayjs(viewingOcorrencia.data).add(12, "hour").format("DD/MM/YYYY") : "N/A"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase leading-none">Data Inclusão</p>
+                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">
+                      {viewingOcorrencia.created_at ? dayjs(viewingOcorrencia.created_at).format("DD/MM/YYYY") : "N/A"}
+                    </p>
+                  </div>
+                  {(viewingOcorrencia.status === "RESOLVIDO" || viewingOcorrencia.status === "CONCLUIDO" || viewingOcorrencia.status === "CONCLUIDA") && (
+                    <div>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase leading-none">Data Conclusão</p>
+                      <p className="text-sm font-bold text-green-600 dark:text-green-400">
+                        {viewingOcorrencia.updated_at ? dayjs(viewingOcorrencia.updated_at).format("DD/MM/YYYY") : "N/A"}
+                      </p>
+                    </div>
+                  )}
                 </div>
                 <span
                   className={`px-4 py-2 rounded-xl text-sm font-bold border ${viewingOcorrencia.status === "RESOLVIDO" ||
@@ -1426,12 +1395,10 @@ const OcorrenciasList = () => {
                   </div>
                   <div>
                     <span className="block text-xs font-bold text-slate-400 uppercase">
-                      Data Tratativa
+                      Status Atual
                     </span>
                     <span className="font-medium text-slate-700 dark:text-slate-300">
-                      {viewingOcorrencia.dataTratativa
-                        ? dayjs(viewingOcorrencia.dataTratativa).add(12, 'hour').format('DD/MM/YYYY')
-                        : "-"}
+                      {viewingOcorrencia.status || "PENDENTE"}
                     </span>
                   </div>
                 </div>
@@ -1642,84 +1609,7 @@ const OcorrenciasList = () => {
         <div className="absolute bottom-[-20%] left-[-10%] w-[600px] h-[600px] bg-blue-400/10 rounded-full blur-[100px] mix-blend-multiply dark:mix-blend-screen dark:opacity-5"></div>
       </div>
 
-      {/* Header Glass */}
-      <header className="sticky top-0 z-50 px-6 py-4">
-        <div className="max-w-7xl mx-auto">
-          <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md rounded-2xl shadow-sm border border-white/20 dark:border-slate-700/50 px-6 py-3 flex items-center justify-between">
-            <div
-              className="flex items-center gap-3 cursor-pointer"
-              onClick={() => navigate("/")}
-            >
-              <div className="bg-gradient-to-tr from-green-600 to-emerald-400 h-10 w-10 rounded-xl flex items-center justify-center text-white shadow-lg shadow-green-600/20">
-                <span className="font-bold text-xl italic tracking-tighter">
-                  SF
-                </span>
-              </div>
-              <div>
-                <h1 className="text-lg font-bold leading-tight text-slate-800 dark:text-white">
-                  Ocorrências
-                </h1>
-                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">
-                  Lista Geral
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 md:gap-4">
-              <Tooltip title="Alterar data na Home">
-                <div className="hidden md:flex items-center gap-2 mr-2 bg-transparent px-3 py-2 rounded-xl group border border-transparent">
-                  <div className="bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 p-1.5 rounded-lg">
-                    <span className="material-symbols-rounded text-lg">
-                      calendar_today
-                    </span>
-                  </div>
-                  <div className="flex flex-col items-start leading-none">
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                      Data
-                    </span>
-                    <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
-                      {date.toLocaleDateString("pt-BR")}
-                    </span>
-                  </div>
-                </div>
-              </Tooltip>
-              <div className="h-8 w-[1px] bg-slate-200 dark:bg-slate-700 hidden md:block"></div>
-              <div className="flex items-center gap-3">
-                <div className="hidden md:flex flex-col items-end">
-                  <span className="text-sm font-bold text-slate-800 dark:text-white">
-                    {username || "Admin"}
-                  </span>
-                  <div className="text-[10px] font-bold text-white bg-slate-500/50 dark:bg-slate-700/50 px-2 py-0.5 rounded flex items-center gap-1 cursor-default select-none border border-white/10 opacity-80">
-                    LOCAL: {local}
-                  </div>
-                </div>
-                <div className="h-10 w-10 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-800 border-2 border-white dark:border-slate-600 flex items-center justify-center shadow-sm">
-                  <span className="material-symbols-rounded text-slate-500 dark:text-slate-300">
-                    person
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={toggleDarkMode}
-                className="ml-2 p-2.5 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-slate-600 dark:text-slate-300 border border-transparent hover:border-slate-300 dark:hover:border-slate-500"
-              >
-                <span className="material-symbols-rounded block dark:hidden text-xl">
-                  dark_mode
-                </span>
-                <span className="material-symbols-rounded hidden dark:block text-xl">
-                  light_mode
-                </span>
-              </button>
-              <button
-                onClick={handleLogout}
-                className="p-2.5 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/30 transition-all border border-transparent hover:border-red-200 dark:hover:border-red-800"
-              >
-                <span className="material-symbols-rounded text-xl">logout</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader title="Ocorrências" subtitle="Lista Geral" icon="SF" iconGradient="from-green-600 to-emerald-400" iconShadow="shadow-green-600/20" onBack="/" />
 
       {/* Conteúdo Principal */}
       <main className="max-w-7xl mx-auto px-6 py-8 relative z-10">
@@ -1828,10 +1718,7 @@ const OcorrenciasList = () => {
                     Romaneio
                   </th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                    Data Pedido
-                  </th>
-                  <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                    Data Inclusa
+                    Data do Bilhete
                   </th>
                   <th className="px-6 py-4 text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                     Cliente
@@ -1854,7 +1741,7 @@ const OcorrenciasList = () => {
                 {loading ? (
                   <tr>
                     <td
-                      colSpan="8"
+                      colSpan="7"
                       className="px-6 py-10 text-center text-slate-500 dark:text-slate-400"
                     >
                       <div className="flex justify-center items-center gap-2">
@@ -1868,7 +1755,7 @@ const OcorrenciasList = () => {
                 ) : filteredOcorrencias.length === 0 ? (
                   <tr>
                     <td
-                      colSpan="8"
+                      colSpan="7"
                       className="px-6 py-10 text-center text-slate-500 dark:text-slate-400"
                     >
                       Nenhuma ocorrência encontrada.
@@ -1907,11 +1794,6 @@ const OcorrenciasList = () => {
                               : "-"}
                           </span>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 text-slate-500 dark:text-slate-400 text-sm">
-                        {ocr.created_at
-                          ? new Date(ocr.created_at).toLocaleDateString("pt-BR")
-                          : "-"}
                       </td>
                       <td className="px-6 py-4 font-medium text-slate-800 dark:text-white">
                         {ocr.cliente}

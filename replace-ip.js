@@ -2,8 +2,8 @@ const fs = require("fs");
 const path = require("path");
 
 const diretorio = "./src"; // Pasta onde buscar (ajusta se quiser)
-const ipAntigo = "http://192.168.10.49:3001";
-const novoValor = `${process.env.REACT_APP_API_URL}";
+const ipAntigo = "http://localhost:3001";
+const novoValor = "API_BASE_URL";
 
 // Função recursiva para percorrer todos os arquivos da pasta
 function buscarArquivos(diretorio) {

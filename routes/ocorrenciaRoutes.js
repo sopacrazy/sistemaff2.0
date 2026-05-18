@@ -6,6 +6,7 @@ const path = require("path");
 const fs = require("fs");
 const fsp = require("fs/promises");
 const multer = require("multer");
+const dayjs = require("dayjs");
 require("dotenv").config();
 
 const STORAGE_DIR =
@@ -57,6 +58,12 @@ async function getProtheusPool() {
   protheusPool = await new sql.ConnectionPool(cfg).connect();
   return protheusPool;
 }
+
+const toISO = (yyyymmdd) => {
+  const s = String(yyyymmdd || "").replace(/\D/g, "");
+  if (s.length !== 8) return "";
+  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+};
 
 const onlyDigits = (s) => String(s || "").replace(/\D/g, "");
 const padLeft = (s, size) => {
@@ -267,16 +274,79 @@ module.exports = (dbOcorrencias) => {
 
       const [rows] = await dbOcorrencias.promise().query(sqlSelect, params);
 
+      // --- ENRIQUECIMENTO COM PROTHEUS ---
+      // 1) Buscar Z4_DATA (Data do Lançamento/Pedido) em lote para os bilhetes, números de nota e romaneio
+      const terms = rows.flatMap(r => [r.bilhete, r.numero, r.nota_origem]).filter(b => b);
+      const uniqueTerms = [...new Set(terms)];
+      const paddedTerms = uniqueTerms.map(t => String(t).padStart(9, "0"));
+      const allSearchTerms = [...new Set([...uniqueTerms, ...paddedTerms])]
+        .map(b => `'${String(b).trim().replace(/'/g, "''")}'`)
+        .join(",");
+      
+      let z4DataMap = {};
+      
+      if (allSearchTerms.length > 0) {
+        try {
+          const pool = await getProtheusPool();
+          // Buscamos por Bilhete, Nota e Carga (Romaneio) para garantir o match
+          const z4Query = `
+            SELECT Z4_BILHETE, Z4_NOTA, Z4_CARGA, Z4_DATA 
+            FROM SZ4140 
+            WHERE (Z4_BILHETE IN (${allSearchTerms}) 
+               OR Z4_NOTA IN (${allSearchTerms}) 
+               OR Z4_CARGA IN (${allSearchTerms}))
+              AND D_E_L_E_T_ = ''
+            ORDER BY Z4_DATA DESC -- Pega a mais recente se houver duplicidade
+          `;
+          const z4Res = await pool.request().query(z4Query);
+          
+          z4Res.recordset.forEach(r => {
+            const b = String(r.Z4_BILHETE || "").trim();
+            const n = String(r.Z4_NOTA || "").trim();
+            const c = String(r.Z4_CARGA || "").trim();
+            const d = r.Z4_DATA;
+            
+            // Armazena tanto a data quanto o bilhete real
+            const info = { data: d, bilhete: b };
+            
+            if (b) z4DataMap[b] = info;
+            if (n) {
+              z4DataMap[n] = info;
+              z4DataMap[n.padStart(9, "0")] = info;
+            }
+            if (c) z4DataMap[c] = info;
+          });
+        } catch (e) {
+          console.error("Erro ao buscar Z4_DATA em lote no Protheus:", e);
+        }
+      }
+
+      // 2) Processar enriquecimento final (Devolução + Data Correta + Bilhete Correto)
       const enriched = await Promise.all(
         rows.map(async (row) => {
+          const b = String(row.bilhete || "").trim();
+          const n = String(row.numero || "").trim();
+          const nt = String(row.nota_origem || "").trim();
+          const ntPad = nt.padStart(9, "0");
+          
+          // Ordem de preferência para o match: Bilhete -> Nota -> Romaneio
+          const infoProtheus = z4DataMap[b] || z4DataMap[nt] || z4DataMap[ntPad] || z4DataMap[n];
+          
+          // Se encontrou no Protheus, usa essa data e o bilhete real
+          const realData = infoProtheus ? toISO(infoProtheus.data) : row.data;
+          const realBilhete = infoProtheus ? infoProtheus.bilhete : row.bilhete;
+
           const dev = await checkDevolucao({
             filial: row.filial || "01",
             fornecedor: row.fornecedor_cod || null,
             notaFiscal: row.nota_fiscal || null,
             serie: row.serie || null,
           });
+
           return {
             ...row,
+            data: realData,
+            bilhete: realBilhete,
             devolucao_ok: !!dev.ok,
             devolucao_total: Number(dev.total || 0),
           };
@@ -416,101 +486,161 @@ SELECT
     }
   });
 
-  // —— Excel por período (Mantido, mas atualizado para incluir 'departamento' na consulta)
-  router.get("/excel", async (req, res) => {
-    const { startDate, endDate } = req.query;
+    // —— Excel por período (Enriquecido com Protheus)
+    router.get("/excel", async (req, res) => {
+      const { startDate, endDate } = req.query;
+      console.log(`📊 Iniciando exportação Excel: ${startDate} até ${endDate}`);
 
-    const query = `
-SELECT 
-     o.cliente,
-     o.remetente,
-     o.data,
-     o.descricao,
-     o.nota_fiscal,
-     o.nota_origem,
-     o.vendedor, 
-     ip.produto_nome,
-     ip.produto_unidade,
-     ip.quantidade,
-     ip.valor,
-     ip.total,
-     ip.motivo,
-     ip.tipo,
-     ip.departamento,  -- NOVO CAMPO INCLUÍDO
-     ip.obs, 
-     o.conferente,
-     o.motorista,
-     o.numero,
-     ip.created_at
-   FROM ocorrencias o
-      JOIN itens_produto ip ON o.id = ip.ocorrencia_id
-      WHERE o.data BETWEEN ? AND ?
-        AND o.D_E_L_E_T_ = '' 
-        AND ip.D_E_L_E_T_ = ''
-      ORDER BY o.data DESC, o.id DESC
-    `;
+      // Expandimos a busca inicial no MySQL para garantir que pegamos registros com data divergente
+      const qStart = dayjs(startDate).subtract(15, "day").format("YYYY-MM-DD");
+      const qEnd = dayjs(endDate).add(5, "day").format("YYYY-MM-DD");
 
-    try {
-      const [rows] = await dbOcorrencias
-        .promise()
-        .query(query, [startDate, endDate]);
+      const query = `
+        SELECT 
+          o.cliente, o.remetente, o.data, o.descricao, o.nota_fiscal, o.nota_origem,
+          o.vendedor, o.bilhete, o.conferente, o.motorista, o.numero,
+          ip.produto_nome, ip.produto_unidade, ip.quantidade, ip.valor, ip.total,
+          ip.motivo, ip.tipo, ip.departamento, ip.obs, ip.created_at
+        FROM ocorrencias o
+        JOIN itens_produto ip ON o.id = ip.ocorrencia_id
+        WHERE o.data BETWEEN ? AND ?
+          AND o.D_E_L_E_T_ = '' 
+          AND ip.D_E_L_E_T_ = ''
+        ORDER BY o.data DESC, o.id DESC
+      `;
 
-      const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet("Relatório");
+      try {
+        console.log("🔍 Buscando no MySQL...");
+        const [rows] = await dbOcorrencias.promise().query(query, [qStart, qEnd]);
+        console.log(`✅ ${rows.length} linhas encontradas no MySQL.`);
 
-      // Definição das Colunas - Adicionando DEPARTAMENTO
-      worksheet.columns = [
-        { header: "Cliente", key: "cliente", width: 25 },
-        { header: "Remetente", key: "remetente", width: 20 },
-        { header: "Descrição", key: "descricao", width: 30 },
-        { header: "Nota Fiscal", key: "nota_fiscal", width: 16 },
-        { header: "Nota de Origem", key: "nota_origem", width: 16 },
-        { header: "Vendedor", key: "vendedor", width: 20 },
-        { header: "Produto", key: "produto_nome", width: 25 },
-        { header: "Unidade", key: "produto_unidade", width: 10 },
-        {
-          header: "Quantidade",
-          key: "quantidade",
-          width: 12,
-          style: { numFmt: "#.##0,00" },
-        },
-        {
-          header: "Valor",
-          key: "valor",
-          width: 12,
-          style: { numFmt: "#.##0,00" },
-        },
-        {
-          header: "Total",
-          key: "total",
-          width: 12,
-          style: { numFmt: "#.##0,00" },
-        },
-        { header: "Motivo", key: "motivo", width: 20 },
-        { header: "Tipo", key: "tipo", width: 12 },
-        { header: "Departamento", key: "departamento", width: 15 }, // <-- NOVA COLUNA
-        { header: "Observação", key: "obs", width: 30 },
-        { header: "Conferente", key: "conferente", width: 20 },
-        { header: "Data", key: "data", width: 15 },
-        { header: "Motorista", key: "motorista", width: 20 },
-        { header: "Romaneio", key: "numero", width: 15 },
-      ];
+        // --- ENRIQUECIMENTO EM LOTE (Igual à listagem) ---
+        const terms = rows.flatMap(r => [r.bilhete, r.numero, r.nota_origem]).filter(b => b);
+        const uniqueTerms = [...new Set(terms)];
+        const paddedTerms = uniqueTerms.map(t => String(t).padStart(9, "0"));
+        const allSearchTerms = [...new Set([...uniqueTerms, ...paddedTerms])]
+          .map(b => `'${String(b).trim().replace(/'/g, "''")}'`)
+          .join(",");
+        
+        let z4DataMap = {};
+        if (allSearchTerms.length > 0) {
+          console.log(`🔗 Buscando enriquecimento no Protheus (${uniqueTerms.length} termos)...`);
+          const pool = await getProtheusPool();
+          const request = pool.request();
+          request.timeout = 120000; // 120 segundos
+          const z4Res = await request.query(`
+            SELECT Z4_BILHETE, Z4_NOTA, Z4_CARGA, Z4_DATA, Z4_USUARIO 
+            FROM SZ4140 
+            WHERE (Z4_BILHETE IN (${allSearchTerms}) OR Z4_NOTA IN (${allSearchTerms}) OR Z4_CARGA IN (${allSearchTerms}))
+              AND D_E_L_E_T_ = ''
+          `);
+          console.log(`✅ ${z4Res.recordset.length} registros encontrados no Protheus.`);
 
-      // CÓDIGO CORRIGIDO E FINAL
-      rows.forEach((row) => {
-        worksheet.addRow({
-          ...row, // Mantém todos os outros campos (cliente, vendedor, etc.)
+          z4Res.recordset.forEach(r => {
+            const info = { 
+              data: r.Z4_DATA, 
+              bilhete: String(r.Z4_BILHETE).trim(),
+              usuario: String(r.Z4_USUARIO || "").trim()
+            };
+            const b = String(r.Z4_BILHETE || "").trim();
+            const n = String(r.Z4_NOTA || "").trim();
+            const c = String(r.Z4_CARGA || "").trim();
+            if (b) z4DataMap[b] = info;
+            if (n) z4DataMap[n] = info;
+            if (c) z4DataMap[c] = info;
+          });
+        }
 
-          // Garante que os valores sejam NÚMEROS antes de adicionar à planilha
-          quantidade:
-            row.quantidade != null ? parseFloat(row.quantidade) : null,
-          valor: row.valor != null ? parseFloat(row.valor) : null,
-          total: row.total != null ? parseFloat(row.total) : null,
+        // --- ENRIQUECIMENTO DE UNIDADES (SB1140) ---
+        const productNames = [...new Set(rows.map(r => r.produto_nome))].filter(n => n);
+        let unitsMap = {};
+        if (productNames.length > 0) {
+          const nameList = productNames.map(n => `'${String(n).trim().replace(/'/g, "''")}'`).join(",");
+          const pool = await getProtheusPool();
+          const unitsRes = await pool.request().query(`
+            SELECT B1_DESC, B1_UM, B1_SEGUM, B1_CONV, B1_TIPCONV
+            FROM SB1140 
+            WHERE B1_DESC IN (${nameList}) AND D_E_L_E_T_ = ''
+          `);
+          unitsRes.recordset.forEach(u => {
+            unitsMap[u.B1_DESC.trim()] = { 
+              um: u.B1_UM.trim(), 
+              segum: u.B1_SEGUM.trim(),
+              conv: parseFloat(u.B1_CONV || 0),
+              tipconv: u.B1_TIPCONV ? u.B1_TIPCONV.trim() : "M"
+            };
+          });
+        }
 
-          // Mantém a formatação da data que já funcionava
-          data: row.data ? new Date(row.data).toLocaleDateString("pt-BR") : "",
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet("Relatório");
+
+        worksheet.columns = [
+          { header: "Cliente", key: "cliente", width: 25 },
+          { header: "Remetente", key: "remetente", width: 20 },
+          { header: "Nota Fiscal", key: "nota_fiscal", width: 16 },
+          { header: "Nota de Origem", key: "nota_origem", width: 16 },
+          { header: "Vendedor", key: "vendedor", width: 20 },
+          { header: "Produto", key: "produto_nome", width: 25 },
+          { header: "1ª Unidade", key: "um1", width: 10 },
+          { header: "2ª Unidade", key: "um2", width: 10 },
+          { header: "Qtd 2ª UM", key: "qtd_segum", width: 12, style: { numFmt: "#.##0,00" } },
+          { header: "Quantidade", key: "quantidade", width: 12, style: { numFmt: "#.##0,00" } },
+          { header: "Valor", key: "valor", width: 12, style: { numFmt: "#.##0,00" } },
+          { header: "Total", key: "total", width: 12, style: { numFmt: "#.##0,00" } },
+          { header: "Motivo", key: "motivo", width: 20 },
+          { header: "Tipo", key: "tipo", width: 12 },
+          { header: "Departamento", key: "departamento", width: 15 },
+          { header: "Observação", key: "obs", width: 30 },
+          { header: "Conferente", key: "conferente", width: 20 },
+          { header: "Data Bilhete", key: "data_bilhete", width: 15 },
+          { header: "Motorista", key: "motorista", width: 20 },
+          { header: "Faturado Por", key: "faturado_por", width: 20 },
+          { header: "Bilhete", key: "bilhete_real", width: 15 },
+          { header: "Romaneio", key: "numero", width: 15 },
+        ];
+
+        rows.forEach((row) => {
+          const b = String(row.bilhete || "").trim();
+          const n = String(row.numero || "").trim();
+          const nt = String(row.nota_origem || "").trim();
+          const ntPad = nt.padStart(9, "0");
+          
+          const infoProtheus = z4DataMap[b] || z4DataMap[nt] || z4DataMap[ntPad] || z4DataMap[n];
+          const units = unitsMap[String(row.produto_nome).trim()] || { um: row.produto_unidade, segum: "", conv: 0, tipconv: "M" };
+          
+          const realData = infoProtheus ? toISO(infoProtheus.data) : row.data;
+          const realBilhete = infoProtheus ? infoProtheus.bilhete : row.bilhete;
+          const realUsuario = infoProtheus ? infoProtheus.usuario : "";
+
+          // Cálculo da quantidade na segunda unidade
+          let qtdSegum = 0;
+          const qtdOriginal = parseFloat(row.quantidade || 0);
+          if (units.conv > 0) {
+            if (units.tipconv === "M") {
+              qtdSegum = qtdOriginal * units.conv;
+            } else {
+              qtdSegum = qtdOriginal / units.conv;
+            }
+          }
+
+          // Filtragem estrita pela Data do Bilhete (Z4_DATA)
+          const dataComp = realData ? realData.split("T")[0] : null;
+          if (dataComp && dataComp >= startDate && dataComp <= endDate) {
+            worksheet.addRow({
+              ...row,
+              quantidade: row.quantidade != null ? parseFloat(row.quantidade) : null,
+              valor: row.valor != null ? parseFloat(row.valor) : null,
+              total: row.total != null ? parseFloat(row.total) : null,
+              data_bilhete: realData ? dayjs(realData).add(12, 'hour').format("DD/MM/YYYY") : "",
+              bilhete_real: realBilhete,
+              faturado_por: realUsuario,
+              um1: units.um,
+              um2: units.segum,
+              qtd_segum: qtdSegum > 0 ? qtdSegum : null
+            });
+          }
         });
-      });
 
       res.setHeader(
         "Content-Type",
@@ -1547,43 +1677,76 @@ SELECT
   });
 
   // —— Detalhe da ocorrência — inclui `serie` para popular o modal
-  router.get("/:id", (req, res) => {
+  router.get("/:id", async (req, res) => {
     const { id } = req.params;
+    const conn = dbOcorrencias.promise();
 
-    const sqlSelectOcorrencia = `
-  SELECT id, numero, remetente, data, cliente, fornecedor_cod, filial, descricao, 
-         nota_fiscal, serie, nota_origem, valor, status, acao, dataTratativa, 
-         bilhete, motorista, conferente, ajudante, vendedor, placa, obs, 
-         created_at, updated_at, adicionado_pelo_app
-   FROM ocorrencias
-  WHERE id = ? AND D_E_L_E_T_ = ""`;
+    try {
+      const sqlSelectOcorrencia = `
+    SELECT id, numero, remetente, data, cliente, fornecedor_cod, filial, descricao, 
+           nota_fiscal, serie, nota_origem, valor, status, acao, dataTratativa, 
+           bilhete, motorista, conferente, ajudante, vendedor, placa, obs, 
+           created_at, updated_at, adicionado_pelo_app
+     FROM ocorrencias
+    WHERE id = ? AND D_E_L_E_T_ = ""`;
 
-    const sqlSelectProdutos = `
-  SELECT id, produto_nome, produto_unidade, quantidade, valor, total, motivo, tipo, departamento, obs 
-    FROM itens_produto 
-   WHERE ocorrencia_id = ? AND D_E_L_E_T_ = ""`; // <== INCLUI 'departamento'
+      const [[ocorrencia]] = await conn.query(sqlSelectOcorrencia, [id]);
 
-    dbOcorrencias.query(sqlSelectOcorrencia, [id], (err, ocorrenciaResult) => {
-      if (err) {
-        console.error("Erro ao buscar ocorrência:", err);
-        return res.status(500).send(err);
+      if (!ocorrencia) {
+        return res.status(404).json({ message: "Ocorrência não encontrada" });
       }
 
-      if (ocorrenciaResult.length === 0) {
-        return res.status(404).send({ message: "Ocorrência não encontrada" });
-      }
+      // --- ENRIQUECIMENTO COM PROTHEUS ---
+      if (ocorrencia.bilhete || ocorrencia.numero) {
+        try {
+          const pool = await getProtheusPool();
+          const b = String(ocorrencia.bilhete || "").trim();
+          const n = String(ocorrencia.numero || "").trim();
+          const nt = String(ocorrencia.nota_origem || "").trim();
+          const ntPad = nt.padStart(9, "0");
 
-      dbOcorrencias.query(sqlSelectProdutos, [id], (err2, produtosResult) => {
-        if (err2) {
-          console.error("Erro ao buscar produtos:", err2);
-          return res.status(500).send(err2);
+          const z4Res = await pool.request()
+            .input("bilhete", sql.VarChar, b)
+            .input("numero", sql.VarChar, n)
+            .input("nota", sql.VarChar, nt)
+            .input("notaPad", sql.VarChar, ntPad)
+            .query(`
+              SELECT TOP 1 Z4_DATA, Z4_BILHETE 
+              FROM SZ4140 
+              WHERE (Z4_BILHETE = @bilhete OR Z4_NOTA = @nota OR Z4_NOTA = @notaPad OR Z4_CARGA = @numero) 
+                AND D_E_L_E_T_ = ''
+              ORDER BY 
+                CASE 
+                  WHEN Z4_BILHETE = @bilhete THEN 0 
+                  WHEN Z4_NOTA = @nota OR Z4_NOTA = @notaPad THEN 1
+                  ELSE 2 
+                END,
+                Z4_DATA DESC
+            `);
+          
+          if (z4Res.recordset.length > 0) {
+            const r = z4Res.recordset[0];
+            ocorrencia.data = toISO(r.Z4_DATA);
+            ocorrencia.bilhete = String(r.Z4_BILHETE).trim();
+          }
+        } catch (e) {
+          console.error("Erro ao enriquecer detalhe com Z4_DATA:", e);
         }
+      }
 
-        const ocorrencia = ocorrenciaResult[0];
-        ocorrencia.produtos = produtosResult;
-        res.send(ocorrencia);
-      });
-    });
+      const sqlSelectProdutos = `
+    SELECT id, produto_nome, produto_unidade, quantidade, valor, total, motivo, tipo, departamento, obs 
+      FROM itens_produto 
+     WHERE ocorrencia_id = ? AND D_E_L_E_T_ = ""`;
+
+      const [produtosResult] = await conn.query(sqlSelectProdutos, [id]);
+      ocorrencia.produtos = produtosResult;
+      
+      res.json(ocorrencia);
+    } catch (err) {
+      console.error("Erro ao buscar detalhe da ocorrência:", err);
+      res.status(500).json({ error: "Erro ao buscar ocorrência" });
+    }
   });
 
   // —— Logs da Ocorrência

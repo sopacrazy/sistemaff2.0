@@ -29,7 +29,7 @@ interface Props {
   filial: string; // Mantida a prop para o roteamento do App.tsx
 }
 
-const API_BASE_URL = "http://192.168.10.49:4001/api";
+const API_BASE_URL = "/api";
 const LIMITE_POR_PAGINA = 100;
 
 export const ConsultaProdutos: React.FC<Props> = ({ filial }) => {

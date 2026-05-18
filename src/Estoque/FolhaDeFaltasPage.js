@@ -36,11 +36,7 @@ function getDataTrabalho() {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
-const API_BASE =
-  window.__API_BASE ||
-  document.querySelector('meta[name="api-base"]')?.content ||
-  API_BASE_URL ||
-  "http://localhost:3001";
+const API_BASE = API_BASE_URL;
 
 export default function FolhaDeFaltasPage() {
   const navigate = useNavigate();

@@ -6,7 +6,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 
 const FrotaHeader = ({ date, setDate, onDateClick }) => {
     const navigate = useNavigate();
-    const { theme } = useTheme();
+    const { theme, toggleTheme } = useTheme();
     const [username, setUsername] = useState("");
     const [local, setLocal] = useState("08");
 
@@ -22,8 +22,6 @@ const FrotaHeader = ({ date, setDate, onDateClick }) => {
         localStorage.removeItem("token");
         navigate("/login");
     };
-
-    const toggleDarkMode = () => document.documentElement.classList.toggle("dark");
 
     return (
         <header className="sticky top-0 z-50 px-6 py-4">
@@ -68,9 +66,10 @@ const FrotaHeader = ({ date, setDate, onDateClick }) => {
                                 <span className="material-symbols-rounded text-slate-500 dark:text-slate-300">person</span>
                             </div>
                         </div>
-                        <button onClick={toggleDarkMode} className="ml-2 p-2.5 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-slate-600 dark:text-slate-300 border border-transparent hover:border-slate-300 dark:hover:border-slate-500">
-                            <span className="material-symbols-rounded block dark:hidden text-xl">dark_mode</span>
-                            <span className="material-symbols-rounded hidden dark:block text-xl">light_mode</span>
+                        <button onClick={toggleTheme} className="ml-2 p-2.5 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-slate-600 dark:text-slate-300 border border-transparent hover:border-slate-300 dark:hover:border-slate-500">
+                            <span className="material-symbols-rounded text-xl">
+                                {theme === 'light' ? 'dark_mode' : 'light_mode'}
+                            </span>
                         </button>
                         <button onClick={handleLogout} className="p-2.5 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/30 transition-all border border-transparent hover:border-red-200 dark:hover:border-red-800">
                             <span className="material-symbols-rounded text-xl">logout</span>

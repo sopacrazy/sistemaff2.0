@@ -19,8 +19,11 @@ const ReportDialog = ({ open, onClose, type }) => {
   const [endDate, setEndDate] = useState("");
   const [tipoRelatorio, setTipoRelatorio] = useState("analitico");
   const [motivo, setMotivo] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleExport = async () => {
+    if (loading) return;
+    setLoading(true);
     try {
       const params = { startDate, endDate };
       const token = localStorage.getItem("token");
@@ -68,6 +71,8 @@ const ReportDialog = ({ open, onClose, type }) => {
     } catch (error) {
       console.error("❌ Erro ao exportar relatório:", error);
       alert("Erro ao exportar relatório.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -145,11 +150,16 @@ const ReportDialog = ({ open, onClose, type }) => {
       </DialogContent>
 
       <DialogActions>
-        <Button onClick={onClose} color="secondary">
+        <Button onClick={onClose} color="secondary" disabled={loading}>
           Cancelar
         </Button>
-        <Button onClick={handleExport} color="primary" variant="contained">
-          Exportar
+        <Button 
+          onClick={handleExport} 
+          color="primary" 
+          variant="contained" 
+          disabled={loading || !startDate || !endDate}
+        >
+          {loading ? "Processando..." : "Exportar"}
         </Button>
       </DialogActions>
     </Dialog>

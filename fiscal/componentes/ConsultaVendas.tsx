@@ -59,7 +59,7 @@ const baixarCSV = (dados: any[], nomeArquivo: string) => {
   document.body.removeChild(link);
 };
 
-const API_BASE_URL = "http://192.168.10.49:4001/api";
+const API_BASE_URL = "/api";
 
 interface ItemPedido {
   pedidoId: string;

@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { useTheme } from './contexts/ThemeContext';
 import Swal from 'sweetalert2';
-import { getDataTrabalho, setDataTrabalho } from "./utils/dataTrabalho";
+import { getDataTrabalho } from "./utils/dataTrabalho";
 import { API_BASE_URL } from "./utils/apiConfig";
+import AppHeader from "./components/AppHeader";
 
 // Modal Component Simples
 const Modal = ({ isOpen, onClose, title, children, maxWidth = "max-w-sm" }) => {
@@ -76,21 +77,14 @@ const Home = () => {
 
   // States para Local e Data
   const [local, setLocal] = useState("08");
-  const [date, setDate] = useState(() => {
-    const stored = getDataTrabalho();
-    return stored ? new Date(stored + "T12:00:00") : new Date();
-  });
 
   // Modals stats
   const [isLocalModalOpen, setIsLocalModalOpen] = useState(false);
-  const [isDateModalOpen, setIsDateModalOpen] = useState(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isPermissoesModalOpen, setIsPermissoesModalOpen] = useState(false);
 
   // Temp states para os inputs dos modals
   const [tempLocal, setTempLocal] = useState("08");
-  const [tempDate, setTempDate] = useState("");
   const [passwordData, setPasswordData] = useState({
     senhaAtual: "",
     novaSenha: "",
@@ -201,30 +195,6 @@ const Home = () => {
     }
   };
 
-  // Handlers para Data
-  const openDateModal = () => {
-    // Formata para YYYY-MM-DD para o input
-    // Ajuste simples para fuso horário local
-    const offset = date.getTimezoneOffset();
-    const localDate = new Date(date.getTime() - (offset * 60 * 1000));
-    setTempDate(localDate.toISOString().split('T')[0]);
-    setIsDateModalOpen(true);
-  };
-
-  const saveDate = () => {
-    if (!tempDate) return;
-
-    // Salva globalmente no localStorage via helper
-    setDataTrabalho(tempDate);
-
-    const [y, m, d] = tempDate.split('-');
-    // Cria data ao meio-dia para evitar problemas de fuso
-    const newDate = new Date(y, m - 1, d, 12, 0, 0);
-    setDate(newDate);
-    setIsDateModalOpen(false);
-    window.location.reload();
-  };
-
   // Handlers para Senha
   const openPasswordModal = () => {
     setPasswordData({
@@ -235,22 +205,6 @@ const Home = () => {
     setIsUserMenuOpen(false); // Fecha o menu ao abrir o modal
     setIsPasswordModalOpen(true);
   };
-
-  // Handler para toggle do menu do usuário
-  const toggleUserMenu = () => {
-    setIsUserMenuOpen(!isUserMenuOpen);
-  };
-
-  // Fecha o menu ao clicar fora
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (isUserMenuOpen && !event.target.closest('.user-menu-container')) {
-        setIsUserMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isUserMenuOpen]);
 
   const savePassword = async () => {
     // Validações
@@ -738,19 +692,6 @@ const Home = () => {
         </button>
       </Modal>
 
-      <Modal isOpen={isDateModalOpen} onClose={() => setIsDateModalOpen(false)} title="Alterar Data">
-        <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Selecione a Data de Trabalho:</label>
-        <input
-          type="date"
-          value={tempDate}
-          onChange={(e) => setTempDate(e.target.value)}
-          className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 focus:ring-2 focus:ring-green-500 outline-none transition-all dark:text-white dark:[color-scheme:dark]"
-        />
-        <button onClick={saveDate} className="mt-6 w-full py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-green-600/20 active:scale-95">
-          Confirmar Data
-        </button>
-      </Modal>
-
       <Modal isOpen={isPasswordModalOpen} onClose={() => setIsPasswordModalOpen(false)} title="Alterar Senha">
         <div className="space-y-4">
           <div>
@@ -1089,100 +1030,23 @@ const Home = () => {
         <div className="absolute bottom-[-20%] left-[-10%] w-[600px] h-[600px] bg-blue-400/10 rounded-full blur-[100px] mix-blend-multiply dark:mix-blend-screen dark:opacity-5"></div>
       </div>
 
-      {/* Header Moderno (Flutuante/Glass) */}
-      <header className="sticky top-0 z-50 px-6 py-4">
-        <div className="max-w-7xl mx-auto">
-          <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md rounded-2xl shadow-sm border border-white/20 dark:border-slate-700/50 px-6 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="bg-gradient-to-tr from-green-600 to-emerald-400 h-10 w-10 rounded-xl flex items-center justify-center text-white shadow-lg shadow-green-600/20">
-                <span className="font-bold text-xl italic tracking-tighter">SF</span>
-              </div>
-              <div>
-                <h1 className="text-lg font-bold leading-tight text-slate-800 dark:text-white">SistemaFF</h1>
-                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Fort Fruit</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 md:gap-4">
-              {/* Botão de Data - Agora com funcionalidade */}
-              <button
-                onClick={openDateModal}
-                className="hidden md:flex items-center gap-2 mr-2 hover:bg-slate-100 dark:hover:bg-slate-700/50 px-3 py-2 rounded-xl transition-all cursor-pointer group border border-transparent hover:border-slate-200 dark:hover:border-slate-600"
-                title="Clique para alterar a data"
-              >
-                <div className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 p-1.5 rounded-lg">
-                  <span className="material-symbols-rounded text-lg">calendar_today</span>
-                </div>
-                <div className="flex flex-col items-start leading-none">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Data</span>
-                  <span className="text-sm font-bold text-slate-700 dark:text-slate-200">{date.toLocaleDateString('pt-BR')}</span>
-                </div>
-              </button>
-
-              <div className="h-8 w-[1px] bg-slate-200 dark:bg-slate-700 hidden md:block"></div>
-
-              {/* Botão de Usuário e Local - Agora funcional */}
-              <div className="flex items-center gap-3">
-                <div className="hidden md:flex flex-col items-end">
-                  <span className="text-sm font-bold text-slate-800 dark:text-white">{username || "Visitante"}</span>
-                  <button
-                    onClick={openLocalModal}
-                    className={`text-[10px] font-bold text-white px-2 py-0.5 rounded transition-colors flex items-center gap-1 ${canChangeLocal ? 'bg-slate-800 dark:bg-slate-600 hover:bg-primary dark:hover:bg-primary cursor-pointer' : 'bg-gray-400 cursor-not-allowed'}`}
-                    title={canChangeLocal ? "Clique para alterar o local" : "Você não tem permissão para alterar o local"}
-                  >
-                    LOCAL: {local}
-                    {canChangeLocal && <span className="material-symbols-rounded text-[10px]">edit</span>}
-                    {!canChangeLocal && <span className="material-symbols-rounded text-[10px]">lock</span>}
-                  </button>
-                </div>
-                <div className="relative user-menu-container">
-                  <button
-                    onClick={toggleUserMenu}
-                    className="h-10 w-10 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-800 border-2 border-white dark:border-slate-600 flex items-center justify-center shadow-sm hover:shadow-md hover:scale-105 transition-all cursor-pointer"
-                    title="Menu do usuário"
-                  >
-                    <span className="material-symbols-rounded text-slate-500 dark:text-slate-300">person</span>
-                  </button>
-
-                  {/* Menu Dropdown */}
-                  {isUserMenuOpen && (
-                    <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-800 rounded-xl shadow-lg border border-slate-200 dark:border-slate-700 py-2 z-50 animate-in fade-in zoom-in-95 duration-200">
-                      <button
-                        onClick={openPasswordModal}
-                        className="w-full px-4 py-3 text-left text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-3 border-b border-slate-100 dark:border-slate-700"
-                      >
-                        <span className="material-symbols-rounded text-lg text-slate-500 dark:text-slate-400">lock</span>
-                        <span>Alterar Senha</span>
-                      </button>
-                      {(permissoes["CONFIGURAÇÃO"] || (userTipo && (userTipo.toLowerCase() === "admin" || userTipo.toLowerCase() === "gestor"))) && (
-                        <button
-                          onClick={() => {
-                            setIsUserMenuOpen(false);
-                            navigate('/configuracao');
-                          }}
-                          className="w-full px-4 py-3 text-left text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors flex items-center gap-3"
-                        >
-                          <span className="material-symbols-rounded text-lg text-slate-500 dark:text-slate-400">settings</span>
-                          <span>Configuração</span>
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <button onClick={toggleTheme} className="ml-2 p-2.5 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors text-slate-600 dark:text-slate-300 border border-transparent hover:border-slate-300 dark:hover:border-slate-500">
-                <span className="material-symbols-rounded block dark:hidden text-xl" title="Mudar para Escuro">dark_mode</span>
-                <span className="material-symbols-rounded hidden dark:block text-xl" title="Mudar para Claro">light_mode</span>
-              </button>
-
-              <button onClick={handleLogout} className="p-2.5 rounded-xl bg-red-50 text-red-500 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/30 transition-all border border-transparent hover:border-red-200 dark:hover:border-red-800" title="Sair do Sistema">
-                <span className="material-symbols-rounded text-xl">logout</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        title="SistemaFF"
+        subtitle="Fort Fruit"
+        icon="SF"
+        iconGradient="from-green-600 to-emerald-400"
+        iconShadow="shadow-green-600/20"
+        canChangeLocal={canChangeLocal}
+        onLocalClick={openLocalModal}
+        usernameValue={username}
+        localValue={local}
+        userMenuItems={[
+          { label: 'Alterar Senha', icon: 'lock', onClick: openPasswordModal },
+          ...((permissoes["CONFIGURAÇÃO"] || permissoes["ALTERAR_LOCAL_USUARIO"] || (userTipo && (userTipo.toLowerCase() === "admin" || userTipo.toLowerCase() === "gestor")))
+            ? [{ label: 'Configuração', icon: 'settings', onClick: () => navigate('/configuracao') }]
+            : [])
+        ]}
+      />
 
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-6 py-8 relative z-10">

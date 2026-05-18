@@ -22,12 +22,10 @@ import HomeIcon from "@mui/icons-material/Home";
 import DefaultAppBar from "../components/DefaultAppBar";
 import { getDataTrabalho } from "../utils/dataTrabalho";
 import { Snackbar, Alert } from "@mui/material";
+import { API_BASE_URL } from "../utils/apiConfig";
 
-const API_BASE =
-  process.env.REACT_APP_API_URL ||
-  window.__API_BASE ||
-  document.querySelector('meta[name="api-base"]')?.content ||
-  "http://localhost:3001";
+
+const API_BASE = API_BASE_URL;
 
 // tenta via iframe oculto; se falhar, navega na mesma aba
 function baixarRelFaltasEmIframe({ data, local }) {

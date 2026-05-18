@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 // Defina a URL base aqui, igual nos outros arquivos
-const API_BASE_URL = "http://192.168.10.49:4001/api";
+const API_BASE_URL = "/api";
 
 // Definições de tipos
 interface PendenciaFiscal {

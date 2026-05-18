@@ -6,11 +6,10 @@ import Swal from 'sweetalert2';
 import { API_BASE_URL } from '../utils/apiConfig';
 import dayjs from "dayjs";
 import * as XLSX from 'xlsx';
+import AppHeader from '../components/AppHeader';
 
 const ProdutoPorCliente = () => {
     const navigate = useNavigate();
-    const [username, setUsername] = useState("");
-    const [local, setLocal] = useState("01");
     const [dataDe, setDataDe] = useState("");
     const [dataAte, setDataAte] = useState("");
     
@@ -32,10 +31,6 @@ const ProdutoPorCliente = () => {
     const [loadingItens, setLoadingItens] = useState(false);
 
     useEffect(() => {
-        const u = sessionStorage.getItem("username") || localStorage.getItem("username");
-        const l = sessionStorage.getItem("local") || localStorage.getItem("local") || "01";
-        if (u) setUsername(u);
-        if (l) setLocal(l);
         handleSearchCliente("");
         handleSearchProduto("");
     }, []);
@@ -115,9 +110,6 @@ const ProdutoPorCliente = () => {
     const totalFinanceiro = selectedNotas.reduce((acc, n) => acc + (n.valor || 0), 0);
     const totalQuantidade = itensAgregados.reduce((acc, item) => acc + (parseFloat(item.quant) || 0), 0);
 
-    const toggleDarkMode = () => document.documentElement.classList.toggle("dark");
-    const handleLogout = () => { localStorage.clear(); navigate("/login"); };
-
     const handleExportExcel = () => {
         if (itensAgregados.length === 0) {
             Swal.fire({ icon: 'warning', title: 'Atenção', text: 'Selecione pelo menos um bilhete para exportar os itens.', confirmButtonColor: '#2563eb' });
@@ -146,37 +138,7 @@ const ProdutoPorCliente = () => {
         <div className="min-h-screen bg-[#F3F4F6] dark:bg-[#0B1120] text-slate-800 dark:text-slate-100 font-sans pb-20 transition-colors duration-300">
             <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
 
-            <header className="sticky top-0 z-50 px-4 md:px-6 py-4">
-                <div className="max-w-[95%] mx-auto">
-                    <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md rounded-2xl shadow-sm border border-white/20 dark:border-slate-700/50 px-4 md:px-6 py-3 flex items-center justify-between">
-                        <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate("/financeiro/contas-receber")}>
-                            <div className="bg-gradient-to-tr from-blue-600 to-indigo-500 h-10 w-10 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-600/20">
-                                <span className="material-symbols-rounded text-2xl">monitoring</span>
-                            </div>
-                            <div>
-                                <h1 className="text-lg font-bold leading-tight text-slate-800 dark:text-white">Produto X Cliente</h1>
-                                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Auditoria de Vendas</span>
-                            </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 md:gap-4">
-                            <div className="hidden md:flex items-center gap-3 text-right">
-                                <div className="flex flex-col items-end">
-                                    <span className="text-sm font-bold text-slate-800 dark:text-white">{username || "Admin"}</span>
-                                    <span className="text-[10px] text-slate-400 font-bold bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded uppercase tracking-tighter">Protheus Database</span>
-                                </div>
-                            </div>
-                            <button onClick={toggleDarkMode} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-                                <span className="material-symbols-rounded block dark:hidden">dark_mode</span>
-                                <span className="material-symbols-rounded hidden dark:block">light_mode</span>
-                            </button>
-                            <button onClick={handleLogout} className="p-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-                                <span className="material-symbols-rounded">logout</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </header>
+            <AppHeader title="Produto por Cliente" subtitle="Relatório" icon="bar_chart" iconGradient="from-emerald-500 to-green-400" iconShadow="shadow-emerald-500/20" onBack="/financeiro" />
 
             <main className="max-w-[95%] mx-auto px-4 md:px-6 py-8">
                 

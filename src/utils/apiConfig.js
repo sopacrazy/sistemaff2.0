@@ -3,25 +3,28 @@
 import axios from "axios";
 
 function getApiBaseUrl() {
-  // SEMPRE detecta automaticamente baseado no hostname atual
-  // Ignora VITE_API_URL se estiver acessando de IP de rede
+  // 1. Se houver uma URL definida explicitamente no ambiente (ex: .env.production)
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
+
   const hostname = window.location.hostname;
   const protocol = window.location.protocol;
-  const port = 3001; // Porta padrão do backend
+  const port = 4006; // Porta padrão do backend (Sincronizada com server.js)
 
-  // Se estiver em localhost ou 127.0.0.1, usa localhost
+  // 2. Se estiver em localhost ou 127.0.0.1, usa localhost:3001
   if (hostname === "localhost" || hostname === "127.0.0.1") {
     return `http://localhost:${port}`;
   }
 
-  // Se estiver acessando por IP de rede (192.168.x.x, 10.x.x.x, etc)
-  // SEMPRE usa o mesmo IP, ignorando qualquer configuração de ambiente
+  // 3. Se estiver acessando por IP de rede (192.168.x.x, 10.x.x.x, etc)
   if (hostname.match(/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/)) {
     return `http://${hostname}:${port}`;
   }
 
-  // Caso contrário, usa o mesmo hostname com a porta do backend
-  return `${protocol}//${hostname}:${port}`;
+  // 4. Em produção (portal.fortfruit.com.br), o Apache faz proxy de /api/*
+  // Se não caiu em nenhuma regra acima, retornamos /api como caminho relativo
+  return "/api";
 }
 
 export const API_BASE_URL = getApiBaseUrl();

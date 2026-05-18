@@ -59,6 +59,7 @@ const vendasReportRoutes = require("./routes/vendasReportRoutes");
 const basquetaRoutes = require("./routes/basquetaRoutes");
 const caixaRoutes = require("./routes/caixaRoutes");
 const caixaAIRoutes = require("./routes/caixaAIRoutes");
+const rotacontrato = require("./routes/rotacontrato");
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
@@ -346,6 +347,8 @@ const corsOptions = {
       "http://127.0.0.1:3006",
       "http://localhost:3007",
       "http://127.0.0.1:3007",
+      "https://portal.fortfruit.com.br",
+      "http://portal.fortfruit.com.br",
     ];
 
     // Se não houver origin (ex: apps mobile ou ferramentas de teste), permite
@@ -826,7 +829,8 @@ app.use("/api", clientesRoute);
 app.use("/chamados", chamadoRoutes(dbOcorrencias, notifyUserByUsername));
 app.use("/", exportarTransferencias);
 app.use("/api", abastecimentoRoutes(dbOcorrencias, mssqlPool));
-app.use("/api/frota/abastecimento", authenticateToken, frotaAbastecimento(dbOcorrencias));
+app.use("/api/contrato", rotacontrato());
+app.use("/api/frota/abastecimento", authenticateToken, frotaAbastecimento(dbOcorrencias, () => mssqlPool));
 app.get("/api/debug-ws", (req, res) => {
   const online = {};
   usuariosOnlineMulti.forEach((set, user) => {
@@ -3198,68 +3202,27 @@ app.get(
 // ------------------ FINANCEIRO --------------------------------------------------
 
 // Lista de vendedores
-app.get("/vendedor", (req, res) => {
-  const vendedores = [
-    { codigo: "000001", nome: "MAURICIO" },
-    //{ codigo: "000005", nome: "FELIPE - LOJA" },
-    { codigo: "000016", nome: "FELIPE - LOJA" },
-    { codigo: "000026", nome: "PAULINHO" },
-    { codigo: "000028", nome: "SILVIO VULCAO DAS MERCES JUNIOR" },
-    { codigo: "000067", nome: "JEFFERSON" },
-    { codigo: "000068", nome: "ADEILTON" },
-    { codigo: "000077", nome: "VENDAS CD" },
-    { codigo: "000079", nome: "CEARA VIAGEM" },
-    { codigo: "000086", nome: "ALEXANDRE AUGUSTO" },
-    { codigo: "000088", nome: "WANDERSON JUNIOR" },
-    { codigo: "000089", nome: "ANDERSON SANTOS" },
-    { codigo: "000078", nome: "LUIZ NUNES" },
-  ];
-
-  res.json(vendedores); // Retorna a lista de vendedores como JSON
-});
-
-// Rota para gerar o relatório de clientes de um vendedor
 app.get("/vendedor", async (req, res) => {
-  const nomeVendedor = req.query.nome;
-
-  if (!nomeVendedor) {
-    return res.status(400).send("O nome do vendedor é obrigatório.");
-  }
-
   try {
-    await getMSSQLPool();
-    const request = new sql.Request();
+    const pool = await getMSSQLPool();
     const query = `
-            SELECT 
-                A1.A1_COD AS CodigoCliente,
-                A1.A1_NREDUZ AS RSocial
-            FROM SA1140 A1
-            INNER JOIN SA3140 A3 ON A1.A1_VEND = A3.A3_COD
-            WHERE A3.A3_NOME = @nomeVendedor
-        `;
-
-    request.input("nomeVendedor", sql.VarChar, nomeVendedor);
-    const result = await request.query(query);
-
-    if (result.recordset.length === 0) {
-      return res
-        .status(404)
-        .send("Nenhum cliente encontrado para este vendedor.");
-    }
-
-    const pdfBuffer = await generateClienteReport(
-      nomeVendedor,
-      result.recordset
-    );
-    res.setHeader("Content-Type", "application/pdf");
-    res.setHeader(
-      "Content-Disposition",
-      `attachment; filename=relatorio_${nomeVendedor}.pdf`
-    );
-    res.send(pdfBuffer);
+      SELECT A3_COD, A3_NOME, A3_NREDUZ 
+      FROM SA3140
+      WHERE A3_FILIAL = '01'
+        AND A3_MSBLQL IN ('2','')
+        AND D_E_L_E_T_ = ''
+      ORDER BY A3_NOME
+    `;
+    const result = await pool.request().query(query);
+    const vendedores = result.recordset.map(row => ({
+      codigo: row.A3_COD.trim(),
+      nome: row.A3_NOME.trim(),
+      fantasia: row.A3_NREDUZ.trim()
+    }));
+    res.json(vendedores);
   } catch (error) {
-    console.error("Erro ao gerar o PDF:", error);
-    res.status(500).send("Erro ao gerar o PDF.");
+    console.error("Erro ao buscar vendedores no Protheus:", error);
+    res.status(500).json({ error: "Erro ao buscar vendedores" });
   }
 });
 
@@ -3541,13 +3504,21 @@ ORDER BY E1_NOMCLI;
 
 // Função para gerar o relatório de PDF
 // Endpoint para gerar o relatório por vendedor (analítico ou sintético)
-// Função para gerar o relatório de PDF
 app.get("/relatorio-vendedor", async (req, res) => {
-  const vendedor = req.query.vendedor;
+  const vendedorCode = req.query.vendedor;
   const tipoRelatorio = req.query.tipo;
 
   try {
-    await getMSSQLPool();
+    const pool = await getMSSQLPool();
+
+    // Buscar o nome do vendedor para o título do relatório
+    const vendRes = await pool.request()
+      .input("code", sql.VarChar, vendedorCode)
+      .query("SELECT A3_NOME FROM SA3140 WHERE A3_COD = @code AND A3_FILIAL = '01'");
+    
+    const vendedorNome = vendRes.recordset.length > 0 
+      ? vendRes.recordset[0].A3_NOME.trim() 
+      : vendedorCode;
 
     const query = `
 SELECT DISTINCT
@@ -3570,37 +3541,36 @@ WHERE
     AND SE1140.E1_TIPO <> 'NCC'
     AND SE1140.E1_NOMCLI <> 'A VISTA'
     AND SE1140.E1_VENCREA < DATEADD(DAY, -1, GETDATE())
-    AND SZ4140.Z4_NOMVEN LIKE '%' + @vendedor + '%'  -- Faz a busca parcial pelo vendedor
+    AND SZ4140.Z4_VEND = @vendedorCode
 ORDER BY SE1140.E1_CLIENTE;
+`;
 
-        `;
-
-    const request = new sql.Request();
-    request.input("vendedor", sql.VarChar, `%${vendedor}%`);
+    const request = pool.request();
+    request.input("vendedorCode", sql.VarChar, vendedorCode);
     const result = await request.query(query);
 
     if (tipoRelatorio === "sintetico") {
       // Gera relatório sintético
       const pdfBuffer = await generateFiadoVendedorSinteticoReport(
-        vendedor,
+        vendedorNome,
         result.recordset
       );
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename=relatorio_sintetico_${vendedor}.pdf`
+        `attachment; filename=relatorio_sintetico_${vendedorNome}.pdf`
       );
       return res.send(pdfBuffer);
     } else if (tipoRelatorio === "analitico") {
       // Gera relatório analítico
       const pdfBuffer = await generateFiadoVendedorAnaliticoReport(
-        vendedor,
+        vendedorNome,
         result.recordset
       );
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
         "Content-Disposition",
-        `attachment; filename=relatorio_analitico_${vendedor}.pdf`
+        `attachment; filename=relatorio_analitico_${vendedorNome}.pdf`
       );
       return res.send(pdfBuffer);
     } else {
@@ -3668,14 +3638,23 @@ app.get("/relatorio-cliente", async (req, res) => {
 
 // Rota para gerar o relatório de carteira de clientes de um vendedor
 app.get("/vendedor-cliente", async (req, res) => {
-  const vendedor = req.query.vendedor;
+  const vendedorCode = req.query.vendedor;
 
-  if (!vendedor) {
-    return res.status(400).send("O nome ou código do vendedor é obrigatório.");
+  if (!vendedorCode) {
+    return res.status(400).send("O código do vendedor é obrigatório.");
   }
 
   try {
-    await getMSSQLPool();
+    const pool = await getMSSQLPool();
+
+    // Buscar o nome do vendedor
+    const vendRes = await pool.request()
+      .input("code", sql.VarChar, vendedorCode)
+      .query("SELECT A3_NOME FROM SA3140 WHERE A3_COD = @code AND A3_FILIAL = '01'");
+    
+    const vendedorNome = vendRes.recordset.length > 0 
+      ? vendRes.recordset[0].A3_NOME.trim() 
+      : vendedorCode;
 
     // Consulta SQL para buscar clientes relacionados ao vendedor
     const query = `
@@ -3717,7 +3696,7 @@ WHERE
     A1.A1_FILIAL = '01'
     AND A1.D_E_L_E_T_ = ''
     AND A3.A3_FILIAL = '01'
-    AND A3.A3_NOME = @vendedor
+    AND A3.A3_COD = @vendedorCode
 GROUP BY 
     A1.A1_COD, 
     A1.A1_NOME, 
@@ -3725,15 +3704,11 @@ GROUP BY
     A1.A1_ULTCOM, 
     A1.A1_MSBLQL,
     E4.E4_DESCRI;  -- Adicionar
+`;
 
-
-        `;
-
-    const request = new sql.Request();
-    request.input("vendedor", sql.VarChar, vendedor); // Passando o vendedor selecionado
+    const request = pool.request();
+    request.input("vendedorCode", sql.VarChar, vendedorCode);
     const result = await request.query(query);
-
-    // Adicione um log para inspecionar os dados retornados pela consulta SQL
 
     if (result.recordset.length === 0) {
       return res
@@ -3742,11 +3717,11 @@ GROUP BY
     }
 
     // Geração do PDF
-    const pdfBuffer = await generateVendedorReport(vendedor, result.recordset); // Chama a função correta para gerar o relatório
+    const pdfBuffer = await generateVendedorReport(vendedorNome, result.recordset); // Chama a função correta para gerar o relatório
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename=carteira_${vendedor}.pdf`
+      `attachment; filename=carteira_${vendedorNome}.pdf`
     );
     res.send(pdfBuffer);
   } catch (error) {
@@ -3756,14 +3731,23 @@ GROUP BY
 });
 
 app.get("/vendedor-relatorio", async (req, res) => {
-  const vendedor = req.query.vendedor;
+  const vendedorCode = req.query.vendedor;
 
-  if (!vendedor) {
-    return res.status(400).send("O nome ou código do vendedor é obrigatório.");
+  if (!vendedorCode) {
+    return res.status(400).send("O código do vendedor é obrigatório.");
   }
 
   try {
-    await getMSSQLPool();
+    const pool = await getMSSQLPool();
+
+    // Buscar o nome do vendedor
+    const vendRes = await pool.request()
+      .input("code", sql.VarChar, vendedorCode)
+      .query("SELECT A3_NOME FROM SA3140 WHERE A3_COD = @code AND A3_FILIAL = '01'");
+    
+    const vendedorNome = vendRes.recordset.length > 0 
+      ? vendRes.recordset[0].A3_NOME.trim() 
+      : vendedorCode;
 
     // Primeira query - clientes do vendedor
     const queryClientes = `
@@ -3805,7 +3789,7 @@ WHERE
     A1.A1_FILIAL = '01'
     AND A1.D_E_L_E_T_ = ''
     AND A3.A3_FILIAL = '01'
-    AND A3.A3_NOME = @vendedor
+    AND A3.A3_COD = @vendedorCode
 GROUP BY 
     A1.A1_COD, 
     A1.A1_NOME, 
@@ -3813,14 +3797,12 @@ GROUP BY
     A1.A1_ULTCOM, 
     A1.A1_MSBLQL,
     E4.E4_DESCRI;  -- Adicionar
+`;
 
-        `;
-
-    const request = new sql.Request();
-    request.input("vendedor", sql.VarChar, vendedor);
+    const request = pool.request();
+    request.input("vendedorCode", sql.VarChar, vendedorCode);
     const resultClientes = await request.query(queryClientes);
 
-    // Segunda query - ranking de pagadores
     // Segunda query - ranking de pagadores
     const queryRanking = `
 SELECT 
@@ -3841,14 +3823,14 @@ ORDER BY TitulosAtrasados DESC, TitulosEmDia DESC;
 
     // Geração do PDF com as informações de clientes e ranking
     const pdfBuffer = await generateVendedorReport(
-      vendedor,
+      vendedorNome,
       resultClientes.recordset,
       resultRanking.recordset
     );
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename=relatorio_${vendedor}.pdf`
+      `attachment; filename=relatorio_${vendedorNome}.pdf`
     );
     res.send(pdfBuffer);
   } catch (error) {
@@ -4801,7 +4783,7 @@ app.post("/imprimir-pre-fechamento-termica", async (req, res) => {
   try {
     // 🔍 Busca os produtos com saldo e físico
     const resSaldos = await axios.get(
-      "http://127.0.0.1:3001/produtos-com-saldo",
+      `http://127.0.0.1:${process.env.PORT || 4006}/produtos-com-saldo`,
       {
         params: { data, local },
       }
@@ -9573,7 +9555,7 @@ app.get("/protheus/bilhete-ocorrencia", async (req, res) => {
       const cabSQL = `
         SELECT TOP 1
           ISNULL(ZB.ZB_NUMSEQ, Z4.Z4_BILHETE) AS Z4_BILHETE,
-          ISNULL(ZB.ZB_DATA, Z4.Z4_DATA) AS Z4_DATA, -- Prioridade para a data de inclusão definitiva (ZB_DATA)
+          ISNULL(Z4.Z4_DATA, ZB.ZB_DATA) AS Z4_DATA, -- Prioridade para a data da venda (SZ4140)
           ISNULL(ZB.ZB_CLIENTE, Z4.Z4_CLIENTE) AS Z4_CLIENTE,
           ISNULL(ZB.ZB_NOMCLI, Z4.Z4_NOMCLI) AS Z4_NOMCLI,
           Z4.Z4_COND,
@@ -9665,9 +9647,7 @@ app.get("/protheus/bilhete-ocorrencia", async (req, res) => {
           .input("realNota", sql.VarChar, realNota)
           .input("data", sql.VarChar, zDate);
 
-        console.log("Executando itensSQL para:", realBilhete);
         const { recordset: rsItens } = await reqItens.query(itensSQL);
-        console.log("itensSQL finalizou! Total itens:", rsItens?.length);
         results.push({ cabecalho: cab, itens: rsItens || [] });
       }
     }
@@ -9769,7 +9749,7 @@ app.get("/saldos/status-locais", (req, res) => {
   });
 });
 
-const port = process.env.PORT || 3001;
+const port = process.env.PORT || 4006;
 
 const server = app.listen(port, "0.0.0.0", () => {
   // Configurar timeouts para permitir geração de relatórios grandes
@@ -9818,7 +9798,6 @@ async function monitorarFaturamentoRotas() {
           const mysqlQ = `INSERT INTO rota_pronta_logs (rota, dt_entrega, hora_pronta) VALUES (?, ?, ?)`;
           const localTime = dayjs().tz("America/Sao_Paulo").format("YYYY-MM-DD HH:mm:ss");
           await dbRegistros.promise().query(mysqlQ, [rota.ZB_ROTA, dataDB, localTime]);
-          console.log(`✅ Rota Pronta Detectada: ${rota.ZB_ROTA} na data ${dataDB} - Hora: ${localTime}`);
         }
       }
     }

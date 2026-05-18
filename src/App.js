@@ -62,6 +62,8 @@ import Fluxograma from "./Fluxograma";
 import RoteirizacaoPage from "./RoteirizacaoPage";
 import UsuariosOnline from "./UsuariosOnline";
 import RecruitAI from "./RH/RecruitAI";
+import RHHome from "./RH/RHHome";
+import Contrato from "./RH/Contrato";
 import CandidatesPage from "./RH/components/CandidatesPage";
 import EditarPendenciaApp from "./EditarPendenciaApp";
 import { FiscalHome } from "./fiscal/FiscalHome";
@@ -576,11 +578,31 @@ const App = () => {
               <Route path="/admin/broadcast" element={<AdminBroadcast />} />
               <Route path="/roteirizacao" element={<RoteirizacaoPage />} />
               <Route
+                path="/rh"
+                element={
+                  <PrivateRoute>
+                    <RequireRH>
+                      <RHHome />
+                    </RequireRH>
+                  </PrivateRoute>
+                }
+              />
+              <Route
                 path="/rh/recruitai"
                 element={
                   <PrivateRoute>
                     <RequireRH>
                       <RecruitAI />
+                    </RequireRH>
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/rh/contrato"
+                element={
+                  <PrivateRoute>
+                    <RequireRH>
+                      <Contrato />
                     </RequireRH>
                   </PrivateRoute>
                 }

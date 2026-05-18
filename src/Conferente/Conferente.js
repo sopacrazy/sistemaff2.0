@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import moment from "moment";
 import "moment/locale/pt-br";
 import { API_BASE_URL } from '../utils/apiConfig';
+import AppHeader from '../components/AppHeader';
 
 // --- Components Reutilizáveis (Tailwind) ---
 
@@ -80,7 +81,6 @@ const ConferentePage = () => {
     fetchData(); // Load initial
   }, []);
 
-  const toggleDarkMode = () => document.documentElement.classList.toggle("dark");
   const handleLogout = () => { localStorage.clear(); navigate("/login"); };
 
   // --- DATA FETCHING ---
@@ -205,38 +205,7 @@ const ConferentePage = () => {
     <div className="min-h-screen bg-[#F3F4F6] dark:bg-[#0B1120] text-slate-800 dark:text-slate-100 font-sans pb-20 transition-colors duration-300">
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
 
-      {/* --- HEADER MODERN (IGUAL OCORRENCIAS) --- */}
-      <header className="sticky top-0 z-50 px-4 md:px-6 py-4">
-        <div className="max-w-7xl mx-auto">
-          <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md rounded-2xl shadow-sm border border-white/20 dark:border-slate-700/50 px-4 md:px-6 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate("/")}>
-              <div className="bg-gradient-to-tr from-amber-500 to-orange-400 h-10 w-10 rounded-xl flex items-center justify-center text-white shadow-lg shadow-amber-500/20">
-                <span className="material-symbols-rounded text-2xl">inventory_2</span>
-              </div>
-              <div>
-                <h1 className="text-lg font-bold leading-tight text-slate-800 dark:text-white">Pré Venda</h1>
-                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Conferência</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 md:gap-4">
-              <div className="hidden md:flex items-center gap-3">
-                <div className="flex flex-col items-end">
-                  <span className="text-sm font-bold text-slate-800 dark:text-white">{username || "Conferente"}</span>
-                  <span className="text-[10px] text-slate-400 font-bold bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">LOCAL: {local}</span>
-                </div>
-              </div>
-              <button onClick={toggleDarkMode} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-                <span className="material-symbols-rounded block dark:hidden">dark_mode</span>
-                <span className="material-symbols-rounded hidden dark:block">light_mode</span>
-              </button>
-              <button onClick={handleLogout} className="p-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-                <span className="material-symbols-rounded">logout</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader title="Pré Venda" subtitle="Conferência" icon="inventory_2" iconGradient="from-amber-500 to-orange-400" iconShadow="shadow-amber-500/20" onBack="/" />
 
       {/* --- MAIN CONTENT --- */}
       <main className="max-w-7xl mx-auto px-4 md:px-6 py-6 space-y-6">

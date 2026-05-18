@@ -15,8 +15,7 @@ import {
 import axios from "axios";
 import { API_BASE_URL } from './utils/apiConfig';
 
-const API_BASE =
-  API_BASE_URL || window.__API_BASE || "http://localhost:3001";
+const API_BASE = API_BASE_URL;
 
 const niveis = ["info", "success", "warning", "error"];
 

@@ -14,7 +14,7 @@ import {
 import { NotaFiscal } from "../tipos";
 
 // Defina a URL base
-const API_BASE_URL = "http://192.168.10.49:4001/api";
+const API_BASE_URL = "/api";
 
 // 🚀 Interface para receber a filial do App.tsx
 interface Props {

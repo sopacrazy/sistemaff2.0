@@ -23,10 +23,33 @@ const BasquetaControl = () => {
     const [newMovement, setNewMovement] = useState({ cliente: "", nome: "", quantidade: 0, tipo: "ENTRADA", motorista: "", currentVal: 0 });
     const [searchingClient, setSearchingClient] = useState(false);
     
+    // Estados para Transferência
+    const [isTransferring, setIsTransferring] = useState(false);
+    const [transferData, setTransferData] = useState({ 
+        clienteOrigem: "", 
+        nomeOrigem: "", 
+        clienteDestino: "", 
+        nomeDestino: "", 
+        quantidade: 0 
+    });
+    const [findDestClientTerm, setFindDestClientTerm] = useState("");
+    const [foundDestClients, setFoundDestClients] = useState([]);
+    const [confirmTransfer, setConfirmTransfer] = useState(false);
+    const [operationSuccess, setOperationSuccess] = useState(false);
+    const [errorMessage, setErrorMessage] = useState("");
+    
     // Novo Estado para Estoque da Empresa - Alterado para 0 conforme solicitado (banco vazio)
     const [totalEstoqueEmpresa, setTotalEstoqueEmpresa] = useState(0);
     const [isEditingTotal, setIsEditingTotal] = useState(false);
     const [tempTotal, setTempTotal] = useState(0);
+    
+    const PRODUTOS = [
+        { id: '499.001', nome: 'Basqueta', icon: 'shopping_basket', color: 'orange' },
+        { id: '141.002', nome: 'Isopor', icon: 'ac_unit', color: 'blue' },
+        { id: '499.003', nome: 'Gaiola', icon: 'grid_view', color: 'indigo' }
+    ];
+
+    const [selectedProduct, setSelectedProduct] = useState(PRODUTOS[0]);
 
     const totalComClientes = basquetasData.reduce((acc, curr) => acc + curr.quantidadeAtual, 0);
     const estoqueNaFortFruit = totalEstoqueEmpresa - totalComClientes;
@@ -39,7 +62,7 @@ const BasquetaControl = () => {
         try {
             setMainLoading(true);
             const response = await axios.get(`${API_BASE_URL}/api/basquetas/resumo`, {
-                params: { data: date }
+                params: { data: date, codProduto: selectedProduct.id }
             });
             // Agora o backend retorna um objeto { clientes, config, isClosed }
             setBasquetasData(response.data.clientes || []);
@@ -57,7 +80,7 @@ const BasquetaControl = () => {
 
     useEffect(() => {
         fetchResumo();
-    }, [date]);
+    }, [date, selectedProduct.id]);
 
     // 2. Buscar Clientes para inclusão
     useEffect(() => {
@@ -79,12 +102,34 @@ const BasquetaControl = () => {
         }
     }, [findClientTerm]);
 
+    // 2.1 Buscar Clientes para Destino da Transferência
+    useEffect(() => {
+        if (findDestClientTerm.length > 2) {
+            const delayDebounceFn = setTimeout(async () => {
+                setSearchingClient(true);
+                try {
+                    const response = await axios.get(`${API_BASE_URL}/api/vendas-report/clientes?q=${findDestClientTerm}`);
+                    setFoundDestClients(response.data);
+                } catch (error) {
+                    console.error("Erro ao buscar clientes destino:", error);
+                } finally {
+                    setSearchingClient(false);
+                }
+            }, 500);
+            return () => clearTimeout(delayDebounceFn);
+        } else {
+            setFoundDestClients([]);
+        }
+    }, [findDestClientTerm]);
+
     // 3. Fetch Client History
     const handleViewDetails = async (client) => {
         try {
             setSelectedClient(client);
             setLoading(true);
-            const response = await axios.get(`${API_BASE_URL}/api/basquetas/movimentacoes/${client.cliente}`);
+            const response = await axios.get(`${API_BASE_URL}/api/basquetas/movimentacoes/${client.cliente}`, {
+                params: { codProduto: selectedProduct.id }
+            });
             setClientHistory(response.data);
         } catch (error) {
             console.error("Erro ao buscar histórico do cliente:", error);
@@ -103,7 +148,8 @@ const BasquetaControl = () => {
                 quantidade: newMovement.quantidade,
                 tipo: 'ENTRADA', // Sempre ENTRADA para retorno
                 motorista: newMovement.motorista,
-                usuario: username
+                usuario: username,
+                codProduto: selectedProduct.id
             });
             
             setIsAddingNew(false);
@@ -118,41 +164,51 @@ const BasquetaControl = () => {
         }
     };
 
-    // 5. Salvar Inventário Diário (Snaphot e Ajuste de Saldo)
-    const handleSaveInventory = async (clientData, newValue) => {
-        const countValue = parseInt(newValue);
-        if (isNaN(countValue)) return;
-        
+    // 5. Salvar Inventário Diário (Snapshot e Ajuste de Saldo)
+    const handleSaveInventory = async () => {
         try {
             setLoading(true);
-            const currentVal = clientData.quantidadeAtual;
+            const countValue = parseInt(newMovement.quantidade);
+            if (isNaN(countValue)) {
+                setErrorMessage("Quantidade inválida");
+                return;
+            }
+
+            const currentVal = newMovement.currentVal;
             const diff = countValue - currentVal;
             
             // 1. Salvar Snapshot de Inventário (Auditoria)
             await axios.post(`${API_BASE_URL}/api/basquetas/inventario`, {
-                cliente: clientData.cliente,
+                cliente: newMovement.cliente,
                 saldo_sistema: currentVal,
                 saldo_fisico: countValue,
-                usuario: username
+                usuario: username,
+                codProduto: selectedProduct.id
             });
 
             // 2. Ajustar Saldo Sistêmico para bater com a contagem física
             if (diff !== 0) {
+                // Se a contagem física é MENOR que o sistema, o cliente "devolveu" (ENTRADA)
+                // Se a contagem física é MAIOR que o sistema, o cliente "levou" (SAIDA)
                 await axios.post(`${API_BASE_URL}/api/basquetas/ajuste-cliente`, {
-                    cliente: clientData.cliente,
-                    nome: clientData.nome,
-                    quantidade: diff,
-                    tipo: 'SALDO_INICIAL',
+                    cliente: newMovement.cliente,
+                    nome: newMovement.nome,
+                    quantidade: Math.abs(diff),
+                    tipo: diff < 0 ? 'ENTRADA' : 'SAIDA',
                     usuario: username,
-                    bilhete: "INVENTÁRIO RÁPIDO"
+                    bilhete: "AJUSTE INVENTÁRIO",
+                    codProduto: selectedProduct.id
                 });
             }
 
             setIsAddingInventory(false);
+            setOperationSuccess(true);
+            setTimeout(() => setOperationSuccess(false), 3000);
             fetchResumo(); 
         } catch (error) {
             console.error("Erro ao salvar inventário:", error);
-            alert("Erro ao salvar inventário.");
+            setErrorMessage("Erro ao salvar inventário.");
+            setTimeout(() => setErrorMessage(""), 3000);
         } finally {
             setLoading(false);
         }
@@ -162,18 +218,20 @@ const BasquetaControl = () => {
         setLoading(true);
         try {
             await axios.post(`${API_BASE_URL}/api/basquetas/fechar-dia`, {
-                data: date, // Adiciona a data selecionada no fechamento
+                data: date,
+                codProduto: selectedProduct.id,
+                usuario: username,
                 clientes: basquetasData,
-                estoque_empresa: totalEstoqueEmpresa,
-                usuario: username
+                estoque_empresa: totalEstoqueEmpresa
             });
-
             setConfirmarFechamento(false);
-            alert("✅ Fechamento de basquetas realizado com sucesso!");
+            setOperationSuccess(true);
+            setTimeout(() => setOperationSuccess(false), 3000);
             fetchResumo();
         } catch (error) {
             console.error("Erro ao fechar dia:", error);
-            alert("❌ Erro ao realizar o fechamento.");
+            setErrorMessage("Erro ao realizar o fechamento.");
+            setTimeout(() => setErrorMessage(""), 3000);
         } finally {
             setLoading(false);
         }
@@ -185,7 +243,7 @@ const BasquetaControl = () => {
         setLoading(true);
         try {
             await axios.delete(`${API_BASE_URL}/api/basquetas/reabrir-dia`, {
-                params: { data: date }
+                params: { data: date, codProduto: selectedProduct.id }
             });
             alert("✅ Dia reaberto! Você pode fazer novas alterações agora.");
             fetchResumo();
@@ -201,7 +259,8 @@ const BasquetaControl = () => {
         try {
             setLoading(true);
             await axios.post(`${API_BASE_URL}/api/basquetas/estoque-empresa`, {
-                valor: tempTotal
+                valor: tempTotal,
+                codProduto: selectedProduct.id
             });
             setIsEditingTotal(false);
             fetchResumo();
@@ -215,6 +274,40 @@ const BasquetaControl = () => {
 
     const handlePrint = () => {
         window.print();
+    };
+
+    const handleTransfer = async () => {
+        if (!transferData.clienteOrigem || !transferData.clienteDestino || transferData.quantidade <= 0) {
+            alert("Preencha todos os campos corretamente.");
+            return;
+        }
+
+        try {
+            setLoading(true);
+            await axios.post(`${API_BASE_URL}/api/basquetas/transferencia`, {
+                clienteOrigem: transferData.clienteOrigem,
+                nomeOrigem: transferData.nomeOrigem,
+                clienteDestino: transferData.clienteDestino,
+                nomeDestino: transferData.nomeDestino,
+                quantidade: transferData.quantidade,
+                usuario: username,
+                codProduto: selectedProduct.id
+            });
+            
+            setIsTransferring(false);
+            setConfirmTransfer(false);
+            setTransferData({ clienteOrigem: "", nomeOrigem: "", clienteDestino: "", nomeDestino: "", quantidade: 0 });
+            setFindDestClientTerm("");
+            setOperationSuccess(true);
+            setTimeout(() => setOperationSuccess(false), 3000);
+            fetchResumo();
+        } catch (error) {
+            console.error("Erro ao realizar transferência:", error);
+            setErrorMessage(error.response?.data?.error || "Erro ao realizar transferência.");
+            setTimeout(() => setErrorMessage(""), 4000);
+        } finally {
+            setLoading(false);
+        }
     };
 
     const filteredData = basquetasData.filter(item =>
@@ -238,13 +331,11 @@ const BasquetaControl = () => {
             <div className="min-h-screen bg-[#F3F4F6] dark:bg-[#0B1120] text-slate-800 dark:text-slate-100 font-sans transition-colors duration-300 pb-20 no-print">
                 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
 
-            {/* Ambient Background */}
             <div className="fixed inset-0 overflow-hidden pointer-events-none">
                 <div className="absolute top-[-20%] right-[-10%] w-[800px] h-[800px] bg-orange-400/10 rounded-full blur-[120px] mix-blend-multiply dark:mix-blend-screen dark:opacity-5"></div>
                 <div className="absolute bottom-[-20%] left-[-10%] w-[600px] h-[600px] bg-blue-400/10 rounded-full blur-[100px] mix-blend-multiply dark:mix-blend-screen dark:opacity-5"></div>
             </div>
 
-            {/* Header Standard */}
             <header className="sticky top-0 z-50 px-4 py-4">
                 <div className="w-full max-w-[98vw] mx-auto">
                     <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md rounded-2xl shadow-sm border border-white/20 dark:border-slate-700/50 px-6 py-3 flex items-center justify-between">
@@ -253,8 +344,8 @@ const BasquetaControl = () => {
                                 <span className="font-bold text-xl italic tracking-tighter">SF</span>
                             </div>
                             <div>
-                                <h1 className="text-lg font-bold leading-tight text-slate-800 dark:text-white">Controle de Basquetas</h1>
-                                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest leading-none block">Faturamento</span>
+                                <h1 className="text-lg font-bold leading-tight text-slate-800 dark:text-white">Controle de {selectedProduct.nome}s</h1>
+                                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest leading-none block">Faturamento • Módulo de Embalagens</span>
                             </div>
                         </div>
 
@@ -298,7 +389,23 @@ const BasquetaControl = () => {
             </header>
 
             <main className="max-w-7xl mx-auto px-6 py-4 relative z-10">
-                {/* Actions Bar Standard */}
+                <div className="flex gap-2 mb-8 p-1.5 bg-white/50 dark:bg-slate-800/50 backdrop-blur-md rounded-[2rem] w-fit shadow-sm border border-white/20 dark:border-slate-700/50">
+                    {PRODUTOS.map((prod) => (
+                        <button
+                            key={prod.id}
+                            onClick={() => setSelectedProduct(prod)}
+                            className={`flex items-center gap-2.5 px-6 py-3 rounded-[1.5rem] text-sm font-black transition-all ${
+                                selectedProduct.id === prod.id
+                                    ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-600/20'
+                                    : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+                            }`}
+                        >
+                            <span className="material-symbols-rounded text-xl">{prod.icon}</span>
+                            {prod.nome.toUpperCase()}
+                        </button>
+                    ))}
+                </div>
+
                 <div className="flex items-center mb-6 animate-in slide-in-from-bottom-5 duration-500">
                     <button
                         onClick={() => navigate("/faturamento")}
@@ -313,21 +420,20 @@ const BasquetaControl = () => {
                     </button>
                 </div>
 
-                {/* Summary Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
                     <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700 flex items-center justify-between">
                         <div>
                             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total com Clientes</p>
                             <p className="text-3xl font-extrabold text-orange-600">{totalComClientes}</p>
                         </div>
                         <div className="w-14 h-14 rounded-2xl bg-orange-50 dark:bg-orange-900/10 flex items-center justify-center text-orange-600">
-                            <span className="material-symbols-rounded text-3xl">shopping_basket</span>
+                            <span className="material-symbols-rounded text-3xl">{selectedProduct.icon}</span>
                         </div>
                     </div>
                     
                     <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700 flex items-center justify-between">
                         <div>
-                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Clientes com Basqueta</p>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Clientes com {selectedProduct.nome}</p>
                             <p className="text-3xl font-extrabold text-blue-600">
                                 {basquetasData.filter(item => item.quantidadeAtual > 0).length}
                             </p>
@@ -339,13 +445,25 @@ const BasquetaControl = () => {
 
                     <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700 flex items-center justify-between">
                         <div>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Total na Ceasa</p>
+                            <p className="text-3xl font-extrabold text-amber-600">
+                                {basquetasData.reduce((acc, curr) => acc + (Number(curr.totalEntrada) || 0), 0)}
+                            </p>
+                        </div>
+                        <div className="w-14 h-14 rounded-2xl bg-amber-50 dark:bg-amber-900/10 flex items-center justify-center text-amber-600">
+                            <span className="material-symbols-rounded text-3xl">local_shipping</span>
+                        </div>
+                    </div>
+
+                    <div className="bg-white dark:bg-slate-800 p-6 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700 flex items-center justify-between">
+                        <div>
                             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Estoque na Fort Fruit</p>
                             <div className="flex flex-col">
                                 <p className={`text-3xl font-extrabold ${estoqueNaFortFruit < 0 ? 'text-rose-500' : 'text-emerald-600'}`}>
                                     {estoqueNaFortFruit}
                                 </p>
                                 <div className="mt-1 flex items-center gap-1.5">
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Total na Empresa:</span>
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Total de {selectedProduct.nome}s:</span>
                                     <span className="text-[11px] font-black text-emerald-600 bg-emerald-50 dark:bg-emerald-900/10 px-2 py-0.5 rounded-md">
                                         {totalEstoqueEmpresa}
                                     </span>
@@ -358,7 +476,6 @@ const BasquetaControl = () => {
                     </div>
                 </div>
 
-                {/* Search Row */}
                 <div className="mb-6 flex flex-col md:flex-row gap-4 items-center justify-between">
                     <div className="relative w-full md:w-96">
                         <span className="absolute left-4 top-1/2 -translate-y-1/2 material-symbols-rounded text-slate-400">search</span>
@@ -399,7 +516,7 @@ const BasquetaControl = () => {
                                     className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-white dark:bg-slate-800 text-slate-700 dark:text-white transition-all shadow-sm border border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-95"
                                 >
                                     <span className="material-symbols-rounded text-xl">warehouse</span>
-                                    <span className="font-bold whitespace-nowrap">Saldo Empresa</span>
+                                    <span className="font-bold whitespace-nowrap">Saldo {selectedProduct.nome}s</span>
                                 </button>
                                 <button 
                                     onClick={() => setConfirmarFechamento(true)}
@@ -413,7 +530,6 @@ const BasquetaControl = () => {
                     </div>
                 </div>
 
-                {/* Table */}
                 <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-700/50 overflow-hidden relative min-h-[400px]">
                     {mainLoading ? (
                         <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm z-20">
@@ -428,8 +544,9 @@ const BasquetaControl = () => {
                                         <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-left">Cliente</th>
                                         <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Saldo Inicial</th>
                                         <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Saídas (+)</th>
-                                        <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Retorno (-)</th>
-                                        <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Saldo Atual</th>
+                                        <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">Retorno/Ajuste (-)</th>
+                                        <th className="px-6 py-5 text-[10px] font-black text-slate-600 dark:text-slate-300 bg-slate-50/50 dark:bg-slate-700/20 uppercase tracking-widest text-center">Saldo Atual</th>
+                                        <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-center">FF Ceasa</th>
                                         <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Ações</th>
                                     </tr>
                                 </thead>
@@ -464,14 +581,54 @@ const BasquetaControl = () => {
                                                     {Number(item.totalEntrada || 0) > 0 ? `-${Number(item.totalEntrada)}` : 0}
                                                 </span>
                                             </td>
-                                            <td className="px-6 py-5 text-center">
+                                            <td className="px-6 py-5 text-center bg-slate-50/30 dark:bg-slate-700/10">
                                                 <span className={`inline-flex items-center px-4 py-1.5 rounded-full text-xs font-black ${
-                                                    (Number(item.saldoFechamento || 0) + Number(item.totalSaida || 0) - Number(item.totalEntrada || 0)) > 50 ? 'bg-orange-100 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400' : 'bg-emerald-100 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400'
+                                                    item.quantidadeAtual > 50 ? 'bg-orange-100 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400' : 'bg-emerald-100 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400'
                                                 }`}>
-                                                    {Number(item.saldoFechamento || 0) + Number(item.totalSaida || 0) - Number(item.totalEntrada || 0)}
+                                                    {item.quantidadeAtual}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-5 text-center bg-slate-50/30 dark:bg-slate-700/10">
+                                                <span className="text-sm font-black text-amber-600 dark:text-amber-400">
+                                                    {Number(item.totalEntrada || 0)}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-5 text-right flex items-center justify-end gap-2">
+                                                <button 
+                                                    onClick={() => {
+                                                        setNewMovement({ 
+                                                            cliente: item.cliente, 
+                                                            nome: item.nome, 
+                                                            quantidade: item.quantidadeAtual, 
+                                                            currentVal: item.quantidadeAtual 
+                                                        });
+                                                        setIsAddingInventory(true);
+                                                    }}
+                                                    disabled={isClosed}
+                                                    className={`p-2 rounded-lg transition-colors ${isClosed ? 'text-slate-300 cursor-not-allowed' : 'hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-400 dark:text-blue-500 hover:text-blue-600'}`}
+                                                    title="Levantamento / Ajustar Saldo"
+                                                >
+                                                    <span className="material-symbols-rounded">edit_note</span>
+                                                </button>
+
+                                                <button 
+                                                    onClick={() => {
+                                                        setTransferData({ 
+                                                            clienteOrigem: item.cliente, 
+                                                            nomeOrigem: item.nome, 
+                                                            clienteDestino: "", 
+                                                            nomeDestino: "", 
+                                                            quantidade: 0 
+                                                        });
+                                                        setIsTransferring(true);
+                                                    }}
+                                                    disabled={isClosed}
+                                                    className={`p-2 rounded-lg transition-colors ${isClosed ? 'text-slate-300 cursor-not-allowed' : 'hover:bg-indigo-50 dark:hover:bg-indigo-900/20 text-indigo-400 dark:text-indigo-500 hover:text-indigo-600'}`}
+                                                    title="Transferir para outro cliente"
+                                                >
+                                                    <span className="material-symbols-rounded">move_up</span>
+                                                </button>
+
                                                 <button 
                                                     onClick={() => {
                                                         setNewMovement({ 
@@ -562,8 +719,8 @@ const BasquetaControl = () => {
                     <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-300 border border-white/10">
                         <div className="px-8 py-6 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
                             <div>
-                                <h3 className="font-bold text-xl text-slate-800 dark:text-white">Registrar Retorno de Basquetas</h3>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Entrada de basqueta vinda do cliente</p>
+                                <h3 className="font-bold text-xl text-slate-800 dark:text-white">Registrar Retorno de {selectedProduct.nome}s</h3>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Entrada de {selectedProduct.nome} vinda do cliente</p>
                             </div>
                             <button onClick={() => { setIsAddingNew(false); setFindClientTerm(""); setFoundClients([]); setNewMovement({ cliente: "", nome: "", quantidade: 0, tipo: "ENTRADA", motorista: "" }); }} className="w-10 h-10 rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
                                 <span className="material-symbols-rounded">close</span>
@@ -678,7 +835,7 @@ const BasquetaControl = () => {
                         <div className="px-8 py-6 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center">
                             <div>
                                 <h3 className="font-bold text-xl text-slate-800 dark:text-white">{selectedClient.nome}</h3>
-                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Histórico de Movimentação de Basquetas</p>
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Histórico de Movimentação de {selectedProduct.nome}s</p>
                             </div>
                             <button onClick={() => { setSelectedClient(null); setClientHistory([]); }} className="w-10 h-10 rounded-full bg-white dark:bg-slate-800 shadow-sm border border-slate-100 dark:border-slate-700 flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
                                 <span className="material-symbols-rounded">close</span>
@@ -721,17 +878,17 @@ const BasquetaControl = () => {
                                                 </td>
                                                 <td className="px-6 py-4 text-center">
                                                     <span className={`px-2 py-1 rounded-md text-[9px] font-black uppercase tracking-tighter ${
-                                                        mov.tipo === 'SAIDA' ? 'bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-400' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
+                                                        (mov.tipo === 'SAIDA' || mov.tipo === 'TRANSF_SAIDA') ? 'bg-rose-100 text-rose-600 dark:bg-rose-900/40 dark:text-rose-400' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-400'
                                                     }`}>
-                                                        {mov.tipo}
+                                                        {mov.tipo.replace('TRANSF_', 'TRANSFERÊNCIA ')}
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-4 font-bold text-xs text-slate-400 uppercase">
                                                     {mov.bilhete}
                                                 </td>
                                                 <td className="px-6 py-4 text-right">
-                                                    <span className={`font-black text-sm ${mov.tipo === 'SAIDA' ? 'text-rose-500' : 'text-emerald-500'}`}>
-                                                        {mov.tipo === 'SAIDA' ? '+' : '-'} {mov.quantidade}
+                                                    <span className={`font-black text-sm ${(mov.tipo === 'SAIDA' || mov.tipo === 'TRANSF_SAIDA') ? 'text-rose-500' : 'text-emerald-500'}`}>
+                                                        {(mov.tipo === 'SAIDA' || mov.tipo === 'TRANSF_SAIDA') ? '+' : '-'} {mov.quantidade}
                                                     </span>
                                                 </td>
                                             </tr>
@@ -753,8 +910,22 @@ const BasquetaControl = () => {
             {/* Modal de Inventário (Carga Provisória) */}
             {isAddingInventory && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-in fade-in duration-300">
-                    <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300 border border-white/10">
-                        <div className="px-8 py-6 bg-blue-600 dark:bg-blue-800 border-b border-white/10 flex justify-between items-center text-white">
+                    <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 border border-white/10 relative">
+                        {loading && (
+                            <div className="absolute inset-0 bg-white/50 dark:bg-slate-900/50 backdrop-blur-[2px] z-[110] flex flex-col items-center justify-center">
+                                <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+                            </div>
+                        )}
+                        
+                        {/* Alertas Internos */}
+                        {errorMessage && (
+                            <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[120] bg-rose-500 text-white px-6 py-3 rounded-2xl shadow-xl font-bold flex items-center gap-2 animate-in slide-in-from-top-4">
+                                <span className="material-symbols-rounded">error</span>
+                                {errorMessage}
+                            </div>
+                        )}
+
+                        <div className="px-8 py-6 bg-blue-600 dark:bg-blue-800 border-b border-white/10 flex justify-between items-center text-white shrink-0">
                             <div className="flex items-center gap-3">
                                 <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
                                     <span className="material-symbols-rounded">edit_note</span>
@@ -769,7 +940,7 @@ const BasquetaControl = () => {
                             </button>
                         </div>
                         
-                        <div className="p-8 space-y-6">
+                        <div className="p-8 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
                             <div className="text-center">
                                 <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-1">{newMovement.cliente}</span>
                                 <h4 className="font-extrabold text-slate-700 dark:text-slate-200 text-lg leading-tight">{newMovement.nome}</h4>
@@ -793,16 +964,15 @@ const BasquetaControl = () => {
                                     type="number"
                                     value={newMovement.quantidade}
                                     onChange={(e) => setNewMovement({ ...newMovement, quantidade: parseInt(e.target.value) || 0 })}
-                                    className="w-full px-6 py-6 bg-slate-50 dark:bg-slate-800 text-center text-4xl font-black text-slate-800 dark:text-white border-2 border-slate-100 dark:border-slate-700 rounded-3xl outline-none focus:border-blue-500 transition-all shadow-inner"
-                                    autoFocus
+                                    className="w-full px-4 py-4 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none transition-all dark:text-white font-black text-5xl text-center"
                                 />
-                                <p className="mt-4 text-[10px] text-slate-400 font-bold text-center uppercase tracking-widest opacity-60">
-                                    O sistema adicionará {newMovement.quantidade - newMovement.currentVal} UN para compensar.
+                                <p className="text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-4">
+                                    O sistema adicionará {newMovement.quantidade - newMovement.currentVal} un para compensar.
                                 </p>
                             </div>
                         </div>
 
-                        <div className="px-8 py-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex gap-4">
+                        <div className="px-8 py-6 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex gap-4 shrink-0">
                             <button 
                                 onClick={() => setIsAddingInventory(false)}
                                 className="flex-1 py-4 px-6 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-800 transition-all"
@@ -852,6 +1022,182 @@ const BasquetaControl = () => {
                     </div>
                 </div>
             )}
+
+            {/* Modal de Transferência entre Clientes */}
+            {isTransferring && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-in fade-in duration-300">
+                    <div className="bg-white dark:bg-slate-900 rounded-[2.5rem] shadow-2xl w-full max-w-xl max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-300 border border-white/10 relative">
+                        {loading && (
+                            <div className="absolute inset-0 bg-white/50 dark:bg-slate-900/50 backdrop-blur-[2px] z-[110] flex flex-col items-center justify-center">
+                                <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+                            </div>
+                        )}
+                        
+                        {/* Alertas Internos */}
+                        {errorMessage && (
+                            <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[120] bg-rose-500 text-white px-6 py-3 rounded-2xl shadow-xl font-bold flex items-center gap-2 animate-in slide-in-from-top-4">
+                                <span className="material-symbols-rounded">error</span>
+                                {errorMessage}
+                            </div>
+                        )}
+
+                        <div className="px-8 py-6 bg-gradient-to-r from-indigo-600 to-violet-700 text-white border-b border-white/10 flex justify-between items-center shrink-0">
+                            <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shadow-lg">
+                                    <span className="material-symbols-rounded text-2xl">sync_alt</span>
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-xl leading-tight">Transferência de {selectedProduct.nome}s</h3>
+                                    <p className="text-[10px] font-bold uppercase tracking-widest mt-1 opacity-80">Movimentação direta entre clientes</p>
+                                </div>
+                            </div>
+                            <button onClick={() => { setIsTransferring(false); setConfirmTransfer(false); setFindDestClientTerm(""); setFoundDestClients([]); }} className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 transition-colors flex items-center justify-center">
+                                <span className="material-symbols-rounded">close</span>
+                            </button>
+                        </div>
+                        
+                        <div className="p-8 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
+                            {!confirmTransfer ? (
+                                <>
+                                    {/* Origem */}
+                                    <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-3xl border border-slate-100 dark:border-slate-800 relative group transition-all hover:border-indigo-500/30">
+                                        <div className="absolute -top-3 left-6 px-3 py-1 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-full text-[9px] font-black text-slate-400 uppercase tracking-widest shadow-sm">Origem</div>
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center text-indigo-600 font-black text-lg">
+                                                {transferData.nomeOrigem.substring(0, 1)}
+                                            </div>
+                                            <div>
+                                                <p className="font-black text-slate-700 dark:text-slate-200 text-lg leading-tight">{transferData.nomeOrigem}</p>
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter mt-0.5">{transferData.clienteOrigem}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex justify-center -my-3 relative z-10">
+                                        <div className="w-12 h-12 rounded-2xl bg-white dark:bg-slate-800 shadow-xl border border-slate-100 dark:border-slate-700 flex items-center justify-center text-indigo-600 animate-bounce">
+                                            <span className="material-symbols-rounded text-2xl">arrow_downward</span>
+                                        </div>
+                                    </div>
+
+                                    {/* Destino */}
+                                    <div className="relative">
+                                        <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-3xl border border-slate-100 dark:border-slate-800 transition-all focus-within:border-indigo-500/50">
+                                            <div className="absolute -top-3 left-6 px-3 py-1 bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-full text-[9px] font-black text-slate-400 uppercase tracking-widest shadow-sm">Destino</div>
+                                            <div className="relative">
+                                                <span className="absolute left-0 top-1/2 -translate-y-1/2 material-symbols-rounded text-slate-400">person_search</span>
+                                                <input 
+                                                    type="text"
+                                                    placeholder="Buscar cliente de destino..."
+                                                    value={transferData.clienteDestino ? `${transferData.clienteDestino} - ${transferData.nomeDestino}` : findDestClientTerm}
+                                                    onChange={(e) => {
+                                                        setFindDestClientTerm(e.target.value);
+                                                        if (transferData.clienteDestino) setTransferData({ ...transferData, clienteDestino: "", nomeDestino: "" });
+                                                    }}
+                                                    className="w-full pl-10 pr-4 py-2 bg-transparent outline-none dark:text-white font-bold text-lg"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        {foundDestClients.length > 0 && !transferData.clienteDestino && (
+                                            <div className="absolute top-full left-0 right-0 mt-3 bg-white dark:bg-slate-800 rounded-[2rem] shadow-2xl border border-slate-100 dark:border-slate-700 max-h-56 overflow-y-auto z-50 overflow-hidden divide-y divide-slate-50 dark:divide-slate-700 animate-in slide-in-from-top-2">
+                                                {foundDestClients.map(c => (
+                                                    <button 
+                                                        key={c.cod}
+                                                        onClick={() => {
+                                                            setTransferData({ ...transferData, clienteDestino: c.cod, nomeDestino: c.nome });
+                                                            setFindDestClientTerm("");
+                                                            setFoundDestClients([]);
+                                                        }}
+                                                        className="w-full px-8 py-4 text-left hover:bg-indigo-50 dark:hover:bg-indigo-900/10 flex flex-col transition-colors"
+                                                    >
+                                                        <span className="font-black text-slate-700 dark:text-slate-200">{c.nome}</span>
+                                                        <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">{c.cod} • {c.fantasia}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Quantidade */}
+                                    <div className="bg-indigo-50 dark:bg-indigo-900/10 p-8 rounded-[2.5rem] border border-indigo-100 dark:border-indigo-900/30 text-center">
+                                        <label className="block text-[10px] font-black text-indigo-400 dark:text-indigo-500 uppercase tracking-widest mb-4">Quantidade a Transferir</label>
+                                        <div className="flex items-center justify-center gap-6">
+                                            <button onClick={() => setTransferData(p => ({...p, quantidade: Math.max(0, p.quantidade - 1)}))} className="w-12 h-12 rounded-full bg-white dark:bg-slate-800 text-indigo-600 shadow-md flex items-center justify-center hover:scale-110 active:scale-95 transition-all"><span className="material-symbols-rounded">remove</span></button>
+                                            <input 
+                                                type="number"
+                                                value={transferData.quantidade}
+                                                onChange={(e) => setTransferData({ ...transferData, quantidade: parseInt(e.target.value) || 0 })}
+                                                className="w-32 bg-transparent outline-none dark:text-white font-black text-6xl text-center"
+                                            />
+                                            <button onClick={() => setTransferData(p => ({...p, quantidade: p.quantidade + 1}))} className="w-12 h-12 rounded-full bg-indigo-600 text-white shadow-lg flex items-center justify-center hover:scale-110 active:scale-95 transition-all shadow-indigo-600/20"><span className="material-symbols-rounded">add</span></button>
+                                        </div>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="py-10 flex flex-col items-center text-center animate-in zoom-in-95">
+                                    <div className="w-24 h-24 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center text-amber-600 mb-8">
+                                        <span className="material-symbols-rounded text-6xl">priority_high</span>
+                                    </div>
+                                    <h4 className="text-2xl font-black text-slate-800 dark:text-white mb-4">Confirmar Transferência?</h4>
+                                    <div className="bg-slate-50 dark:bg-slate-800 p-6 rounded-3xl w-full border border-slate-100 dark:border-slate-700">
+                                        <p className="text-slate-500 dark:text-slate-400 font-bold mb-4">Você está enviando:</p>
+                                        <div className="flex items-center justify-center gap-6">
+                                            <div className="text-right flex-1">
+                                                <p className="text-sm font-black text-slate-700 dark:text-slate-200 uppercase truncate">{transferData.nomeOrigem}</p>
+                                            </div>
+                                            <div className="bg-indigo-600 text-white px-4 py-2 rounded-xl font-black text-xl">
+                                                {transferData.quantidade}
+                                            </div>
+                                            <div className="text-left flex-1">
+                                                <p className="text-sm font-black text-slate-700 dark:text-slate-200 uppercase truncate">{transferData.nomeDestino}</p>
+                                            </div>
+                                        </div>
+                                        <div className="mt-6 flex items-center justify-center gap-2">
+                                            <span className="material-symbols-rounded text-indigo-500">info</span>
+                                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Esta ação irá alterar o saldo de ambos os clientes.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="px-8 py-8 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-100 dark:border-slate-800 flex gap-4 shrink-0">
+                            {!confirmTransfer ? (
+                                <>
+                                    <button 
+                                        onClick={() => setIsTransferring(false)}
+                                        className="flex-1 py-4 px-6 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-800 transition-all"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button 
+                                        onClick={() => setConfirmTransfer(true)}
+                                        disabled={!transferData.clienteDestino || transferData.quantidade <= 0}
+                                        className={`flex-[2] py-4 px-6 rounded-2xl font-black text-white shadow-xl transition-all ${transferData.clienteDestino && transferData.quantidade > 0 ? 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-600/30 active:scale-95' : 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed'}`}
+                                    >
+                                        Próximo Passo
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    <button 
+                                        onClick={() => setConfirmTransfer(false)}
+                                        className="flex-1 py-4 px-6 rounded-2xl border border-slate-200 dark:border-slate-700 font-bold text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-800 transition-all"
+                                    >
+                                        Voltar
+                                    </button>
+                                    <button 
+                                        onClick={handleTransfer}
+                                        className="flex-[2] py-4 px-6 rounded-2xl font-black text-white bg-emerald-600 hover:bg-emerald-700 shadow-xl shadow-emerald-600/30 active:scale-95 transition-all"
+                                    >
+                                        Confirmar e Transferir
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
             </div> {/* FECHAMENTO DA DIV NO-PRINT */}
 
             {/* RELATÓRIO PARA IMPRESSÃO (FORA DA no-print) */}
@@ -867,10 +1213,14 @@ const BasquetaControl = () => {
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-8 mb-10 text-center">
+                    <div className="grid grid-cols-4 gap-8 mb-10 text-center">
                         <div className="border-4 border-black p-4 rounded-xl">
                             <p className="text-[10px] font-black uppercase text-slate-500 mb-1">Total com Clientes</p>
                             <p className="text-3xl font-black">{totalComClientes}</p>
+                        </div>
+                        <div className="border-4 border-black p-4 rounded-xl">
+                            <p className="text-[10px] font-black uppercase text-slate-500 mb-1">Total na Ceasa</p>
+                            <p className="text-3xl font-black">{basquetasData.reduce((acc, curr) => acc + (Number(curr.totalEntrada) || 0), 0)}</p>
                         </div>
                         <div className="border-4 border-black p-4 rounded-xl">
                             <p className="text-[10px] font-black uppercase text-slate-500 mb-1">Basquetas em Estoque</p>
@@ -890,7 +1240,9 @@ const BasquetaControl = () => {
                                 <th className="border border-white/20 px-3 py-4 text-center">INICIAL</th>
                                 <th className="border border-white/20 px-3 py-4 text-center">SAÍDAS (+)</th>
                                 <th className="border border-white/20 px-3 py-4 text-center">RETORNO (-)</th>
-                                <th className="border border-white/20 px-3 py-4 text-center">SALDO FINAL</th>
+                                <th className="border border-white/20 px-3 py-4 text-center uppercase">Cliente</th>
+                                <th className="border border-white/20 px-3 py-4 text-center uppercase">FF Ceasa</th>
+                                <th className="border border-white/20 px-3 py-4 text-center uppercase">Total</th>
                             </tr>
                         </thead>
                         <tbody className="font-bold">
@@ -901,8 +1253,10 @@ const BasquetaControl = () => {
                                     <td className="border border-black px-3 py-2 text-center">{item.saldoFechamento}</td>
                                     <td className="border border-black px-2 py-1 text-center">{Number(item.totalSaida) > 0 ? `+${item.totalSaida}` : item.totalSaida}</td>
                                     <td className="border border-black px-2 py-1 text-center">{Number(item.totalEntrada || 0) > 0 ? `-${item.totalEntrada}` : 0}</td>
+                                    <td className="border border-black px-2 py-1 text-center bg-slate-100">{Number(item.saldoFechamento || 0) + Number(item.totalSaida || 0) - Number(item.totalEntrada || 0)}</td>
+                                    <td className="border border-black px-2 py-1 text-center bg-slate-100">{Number(item.totalEntrada || 0)}</td>
                                     <td className="border border-black px-2 py-1 text-center font-bold">
-                                        {Number(item.saldoFechamento || 0) + Number(item.totalSaida || 0) - Number(item.totalEntrada || 0)}
+                                        {Number(item.saldoFechamento || 0) + Number(item.totalSaida || 0)}
                                     </td>
                                 </tr>
                             ))}
@@ -929,6 +1283,18 @@ const BasquetaControl = () => {
                     </div>
                 </div>
             </div>
+            {/* Toast de Sucesso Global */}
+            {operationSuccess && (
+                <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[200] bg-emerald-600 text-white px-10 py-5 rounded-[2rem] shadow-2xl shadow-emerald-600/40 flex items-center gap-4 animate-in slide-in-from-bottom-10 fade-in duration-500">
+                    <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+                        <span className="material-symbols-rounded">check_circle</span>
+                    </div>
+                    <div>
+                        <p className="font-black text-lg leading-none">Operação Realizada!</p>
+                        <p className="text-xs font-bold opacity-80 mt-1 uppercase tracking-widest">Os dados foram atualizados com sucesso.</p>
+                    </div>
+                </div>
+            )}
         </>
     );
 };

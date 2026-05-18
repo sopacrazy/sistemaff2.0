@@ -1,4 +1,4 @@
-{
+  {
   "name": "ocorrencias-system",
   "version": "1.0.0",
   "private": true,
@@ -44,6 +44,7 @@
     "express": "^4.21.2",
     "express-rate-limit": "^8.2.1",
     "express-validator": "^7.3.1",
+    "extenso": "^2.1.0",
     "html-to-image": "^1.11.11",
     "json2csv": "^6.0.0-alpha.2",
     "jsonwebtoken": "^9.0.3",

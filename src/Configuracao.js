@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import Swal from 'sweetalert2';
-import { useTheme } from "./contexts/ThemeContext";
 import { API_BASE_URL } from './utils/apiConfig';
+import AppHeader from './components/AppHeader';
 
 // --- Components Reutilizáveis (Tailwind) ---
 
@@ -93,8 +93,6 @@ const showAlert = (title, text, icon = 'success') => {
 
 const Configuracoes = () => {
   const navigate = useNavigate();
-  const { toggleTheme } = useTheme();
-
   // --- STATE ---
   const [usuarios, setUsuarios] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
@@ -118,7 +116,6 @@ const Configuracoes = () => {
 
   // System
   const [username, setUsername] = useState("");
-  const [local, setLocal] = useState("08");
 
   // State for expanded modules in permissions
   const [expandedModules, setExpandedModules] = useState({});
@@ -131,13 +128,10 @@ const Configuracoes = () => {
   useEffect(() => {
     const u = sessionStorage.getItem("username");
     if (u) setUsername(u);
-
     fetchUsuarios();
     fetchPrinterConfig();
   }, []);
 
-  // Removed local toggleDarkMode, useTheme's toggleTheme instead inside JSX
-  const handleLogout = () => { localStorage.clear(); navigate("/login"); };
 
 
   // --- API CALLS ---
@@ -372,38 +366,7 @@ const Configuracoes = () => {
     <div className="min-h-screen bg-[#F3F4F6] dark:bg-[#0B1120] text-slate-800 dark:text-slate-100 font-sans pb-20 transition-colors duration-300">
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
 
-      {/* --- HEADER --- */}
-      <header className="sticky top-0 z-50 px-4 md:px-6 py-4">
-        <div className="max-w-7xl mx-auto">
-          <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md rounded-2xl shadow-sm border border-white/20 dark:border-slate-700/50 px-4 md:px-6 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate("/")}>
-              <div className="bg-gradient-to-tr from-slate-700 to-slate-500 h-10 w-10 rounded-xl flex items-center justify-center text-white shadow-lg shadow-slate-600/20">
-                <span className="material-symbols-rounded text-2xl">settings</span>
-              </div>
-              <div>
-                <h1 className="text-lg font-bold leading-tight text-slate-800 dark:text-white">Configurações</h1>
-                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Painel Administrativo</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 md:gap-4">
-              <div className="hidden md:flex items-center gap-3">
-                <div className="flex flex-col items-end">
-                  <span className="text-sm font-bold text-slate-800 dark:text-white">{username || "Admin"}</span>
-                  <span className="text-[10px] text-slate-400 font-bold bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded">LOCAL: {local}</span>
-                </div>
-              </div>
-              <button onClick={toggleTheme} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-                <span className="material-symbols-rounded block dark:hidden">dark_mode</span>
-                <span className="material-symbols-rounded hidden dark:block">light_mode</span>
-              </button>
-              <button onClick={handleLogout} className="p-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-                <span className="material-symbols-rounded">logout</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader title="Configuração" subtitle="Sistema" icon="settings" iconGradient="from-slate-600 to-slate-400" iconShadow="shadow-slate-600/20" onBack="/" />
 
       {/* --- MAIN CONTENT --- */}
       <main className="max-w-7xl mx-auto px-4 md:px-6 py-8 space-y-8">

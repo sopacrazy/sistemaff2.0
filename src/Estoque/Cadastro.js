@@ -26,8 +26,7 @@ import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { API_BASE_URL } from '../utils/apiConfig';
 
-const API_BASE =
-  API_BASE_URL || window.__API_BASE || "http://localhost:3001";
+const API_BASE = API_BASE_URL;
 
 // Constrói a URL WS a partir do API_BASE (http->ws, https->wss)
 const WS_BASE = (() => {

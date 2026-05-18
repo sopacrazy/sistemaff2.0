@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import axios from "axios";
 import Swal from "sweetalert2";
 import { API_BASE_URL } from './utils/apiConfig';
+import AppHeader from './components/AppHeader';
 
 // --- CONSTANTES ---
 const MOTIVOS = [
@@ -86,17 +87,6 @@ const EditarPendenciaApp = () => {
   const navigate = useNavigate();
   const { id } = useParams();
 
-  // --- Header State ---
-  const [username, setUsername] = useState("");
-  const [local, setLocal] = useState("08");
-  useEffect(() => {
-    const storedUser = localStorage.getItem("username");
-    const storedLocal = localStorage.getItem("local");
-    if (storedUser) setUsername(storedUser);
-    if (storedLocal) setLocal(storedLocal);
-  }, []);
-  const toggleDarkMode = () => document.documentElement.classList.toggle("dark");
-  const handleLogout = () => { localStorage.clear(); navigate("/login"); };
 
   // --- Form State ---
   const [form, setForm] = useState({
@@ -499,36 +489,7 @@ const EditarPendenciaApp = () => {
     <div className="min-h-screen bg-[#F3F4F6] dark:bg-[#0B1120] text-slate-800 dark:text-slate-100 font-sans transition-colors duration-300">
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
 
-      {/* Header */}
-      <header className="sticky top-0 z-50 px-6 py-4">
-        <div className="max-w-7xl mx-auto">
-          <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-md rounded-2xl shadow-sm border border-white/20 dark:border-slate-700/50 px-6 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-3 cursor-pointer" onClick={() => navigate('/')}>
-              <div className="bg-gradient-to-tr from-orange-500 to-amber-400 h-10 w-10 rounded-xl flex items-center justify-center text-white shadow-lg shadow-orange-600/20">
-                <span className="font-bold text-xl italic tracking-tighter">SF</span>
-              </div>
-              <div>
-                <h1 className="text-lg font-bold leading-tight text-slate-800 dark:text-white">Editar Ocorrência</h1>
-                <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Pendência App</span>
-              </div>
-            </div>
-            {/* User Info Right */}
-            <div className="flex items-center gap-3">
-              <div className="hidden md:flex flex-col items-end">
-                <span className="text-sm font-bold text-slate-800 dark:text-white">{username || "Visitante"}</span>
-                <span className="text-[10px] text-slate-400">LOCAL: {local}</span>
-              </div>
-              <button onClick={toggleDarkMode} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors">
-                <span className="material-symbols-rounded block dark:hidden">dark_mode</span>
-                <span className="material-symbols-rounded hidden dark:block">light_mode</span>
-              </button>
-              <button onClick={handleLogout} className="p-2 rounded-xl text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-                <span className="material-symbols-rounded">logout</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader title="Pendências" subtitle="Gestão" icon="SF" iconGradient="from-green-600 to-emerald-400" iconShadow="shadow-green-600/20" onBack="/" />
 
       <main className="max-w-6xl mx-auto px-6 py-6 pb-20 relative z-10">
         {/* Title & Back */}
