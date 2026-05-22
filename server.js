@@ -1,4 +1,4 @@
-// Polyfill para Node 20+ onde SlowBuffer foi removido
+// Polyfill para Node 20+ onde SlowBuffer foi removido (reloaded)
 const { Buffer } = require("buffer");
 if (!global.SlowBuffer) {
   global.SlowBuffer = Buffer;
@@ -230,6 +230,19 @@ async function connectToMSSQL(retries = 5, delay = 5000) {
 async function getMSSQLPool() {
   if (mssqlPool && mssqlPool.connected) return mssqlPool;
   return await connectToMSSQL();
+}
+
+// Helper para obter o nome da tabela do Protheus com o sufixo da empresa correto (140 ou 240)
+function getProtheusTable(base, req) {
+  const empresa = req.query.empresa || req.body.empresa || '140';
+  let suffix = empresa === '240' ? '240' : '140';
+  
+  // A tabela SA3 (Vendedores) é compartilhada no Protheus e existe apenas como SA3140
+  if (base === 'SA3') {
+    suffix = '140';
+  }
+  
+  return `${base}${suffix}`;
 }
 
 // Iniciar conexão MSSQL
@@ -3205,13 +3218,27 @@ app.get(
 app.get("/vendedor", async (req, res) => {
   try {
     const pool = await getMSSQLPool();
+    const se1Table = getProtheusTable("SE1", req);
+    const sz4Table = getProtheusTable("SZ4", req);
+    // SA3 é compartilhada (SA3140), mas filtramos vendedores
+    // que possuem títulos inadimplentes na empresa selecionada (SE1140 ou SE1240).
     const query = `
-      SELECT A3_COD, A3_NOME, A3_NREDUZ 
-      FROM SA3140
-      WHERE A3_FILIAL = '01'
-        AND A3_MSBLQL IN ('2','')
-        AND D_E_L_E_T_ = ''
-      ORDER BY A3_NOME
+      SELECT DISTINCT A3.A3_COD, A3.A3_NOME, A3.A3_NREDUZ
+      FROM SA3140 A3
+      WHERE A3.A3_FILIAL = '01'
+        AND A3.A3_MSBLQL IN ('2','')
+        AND A3.D_E_L_E_T_ = ''
+        AND EXISTS (
+          SELECT 1 FROM ${se1Table} E1
+          INNER JOIN ${sz4Table} SZ4 ON E1.E1_NUM = SZ4.Z4_BILHETE
+          WHERE SZ4.Z4_VEND = A3.A3_COD
+            AND E1.E1_FILIAL = '01'
+            AND E1.D_E_L_E_T_ = ''
+            AND E1.E1_SALDO <> 0
+            AND E1.E1_PREFIXO IN ('BIL', '001')
+            AND E1.E1_VENCREA < CONVERT(VARCHAR(8), DATEADD(DAY, -1, GETDATE()), 112)
+        )
+      ORDER BY A3.A3_NOME
     `;
     const result = await pool.request().query(query);
     const vendedores = result.recordset.map(row => ({
@@ -3406,30 +3433,36 @@ app.delete("/contas-pagar/anexos/:id", authenticateToken, async (req, res) => {
 async function getClientes(req, res) {
   try {
     await getMSSQLPool();
+    const se1Table = getProtheusTable("SE1", req);
+    const sa1Table = getProtheusTable("SA1", req);
+    const sz4Table = getProtheusTable("SZ4", req);
+    const sd1Table = getProtheusTable("SD1", req);
 
     // Primeira consulta principal para buscar todos os clientes
     const query = `
 WITH UltimosTitulos AS (
   SELECT
     SE1.E1_NUM,
-    SE1.E1_SALDO,
+    CAST(CASE WHEN ISNULL(Z4.Z4_PERDESB, 0) > 0 THEN SE1.E1_SALDO - (SE1.E1_SALDO * (Z4.Z4_PERDESB / 100.0)) ELSE SE1.E1_SALDO END AS NUMERIC(15,2)) AS E1_SALDO,
     SE1.E1_TIPO,
     SE1.E1_CLIENTE,
     SE1.E1_NOMCLI,
     SE1.E1_VENCREA,
     SE1.E1_VALOR,
+    ISNULL(Z4.Z4_PERDESB, 0) AS Z4_PERDESB,
+    CAST(CASE WHEN ISNULL(Z4.Z4_PERDESB, 0) > 0 THEN SE1.E1_VALOR * (Z4.Z4_PERDESB / 100.0) ELSE 0 END AS NUMERIC(15,2)) AS E1_DESCONT,
     SA1.A1_MSBLQL AS STATUS_CLIENTE,
     Z4.Z4_NOTA,
     Z4.Z4_NOMVEN AS NOME_VENDEDOR,
     ROW_NUMBER() OVER (PARTITION BY SE1.E1_NUM ORDER BY SE1.R_E_C_N_O_ DESC) AS rn
   FROM
-    SE1140 SE1
+    ${se1Table} SE1
   JOIN
-    SA1140 SA1 ON SE1.E1_CLIENTE = SA1.A1_COD
+    ${sa1Table} SA1 ON SE1.E1_CLIENTE = SA1.A1_COD
   OUTER APPLY (
-    SELECT TOP 1 Z4.Z4_NOTA, Z4.Z4_NOMVEN
-    FROM SZ4140 Z4
-    WHERE Z4.Z4_BILHETE = SE1.E1_NUM
+    SELECT TOP 1 Z4.Z4_NOTA, Z4.Z4_NOMVEN, Z4.Z4_PERDESB
+    FROM ${sz4Table} Z4
+    WHERE Z4.Z4_BILHETE = SE1.E1_NUM AND Z4.D_E_L_E_T_ = ''
     ORDER BY Z4.R_E_C_N_O_ DESC
   ) Z4
   WHERE
@@ -3446,8 +3479,6 @@ SELECT *
 FROM UltimosTitulos
 WHERE rn = 1
 ORDER BY E1_NOMCLI;
-
-
         `;
 
     const request = new sql.Request();
@@ -3464,15 +3495,15 @@ ORDER BY E1_NOMCLI;
     if (nccNumeros.length > 0) {
       const queryBilhete = `
             SELECT 
-                SZ4140.Z4_BILHETE AS Numero_Bilhete,
-                SZ4140.Z4_NOTA
+                SZ4.Z4_BILHETE AS Numero_Bilhete,
+                SZ4.Z4_NOTA
             FROM 
-                SZ4140
+                ${sz4Table} SZ4
             JOIN 
-                SD1140 ON SZ4140.Z4_NOTA = SD1140.D1_NFORI
+                ${sd1Table} SD1 ON SZ4.Z4_NOTA = SD1.D1_NFORI
             WHERE 
-                SZ4140.Z4_BILHETE IN (${nccNumeros})
-                AND SD1140.D1_FILIAL = '01';
+                SZ4.Z4_BILHETE IN (${nccNumeros})
+                AND SD1.D1_FILIAL = '01';
             `;
 
       const bilheteRequest = new sql.Request();
@@ -3507,6 +3538,9 @@ ORDER BY E1_NOMCLI;
 app.get("/relatorio-vendedor", async (req, res) => {
   const vendedorCode = req.query.vendedor;
   const tipoRelatorio = req.query.tipo;
+  const sa3Table = getProtheusTable("SA3", req);
+  const se1Table = getProtheusTable("SE1", req);
+  const sz4Table = getProtheusTable("SZ4", req);
 
   try {
     const pool = await getMSSQLPool();
@@ -3514,7 +3548,7 @@ app.get("/relatorio-vendedor", async (req, res) => {
     // Buscar o nome do vendedor para o título do relatório
     const vendRes = await pool.request()
       .input("code", sql.VarChar, vendedorCode)
-      .query("SELECT A3_NOME FROM SA3140 WHERE A3_COD = @code AND A3_FILIAL = '01'");
+      .query(`SELECT A3_NOME FROM ${sa3Table} WHERE A3_COD = @code AND A3_FILIAL = '01'`);
     
     const vendedorNome = vendRes.recordset.length > 0 
       ? vendRes.recordset[0].A3_NOME.trim() 
@@ -3522,27 +3556,28 @@ app.get("/relatorio-vendedor", async (req, res) => {
 
     const query = `
 SELECT DISTINCT
-    SE1140.E1_NUM,
-    SE1140.E1_CLIENTE, 
-    SE1140.E1_NOMCLI, 
-    SE1140.E1_VALOR,
-    SE1140.E1_SALDO,
-    SE1140.E1_EMISSAO,
-    SE1140.E1_VENCREA,
-    SZ4140.Z4_NOTA
+    SE1.E1_NUM,
+    SE1.E1_CLIENTE, 
+    SE1.E1_NOMCLI, 
+    SE1.E1_VALOR,
+    CAST(CASE WHEN ISNULL(SZ4.Z4_PERDESB, 0) > 0 THEN SE1.E1_VALOR * (SZ4.Z4_PERDESB / 100.0) ELSE 0 END AS NUMERIC(15,2)) AS E1_DESCONT,
+    CAST(CASE WHEN ISNULL(SZ4.Z4_PERDESB, 0) > 0 THEN SE1.E1_SALDO - (SE1.E1_SALDO * (SZ4.Z4_PERDESB / 100.0)) ELSE SE1.E1_SALDO END AS NUMERIC(15,2)) AS E1_SALDO,
+    SE1.E1_EMISSAO,
+    SE1.E1_VENCREA,
+    SZ4.Z4_NOTA
 FROM 
-    SE1140
+    ${se1Table} SE1
 JOIN 
-    SZ4140 ON SE1140.E1_NUM = SZ4140.Z4_BILHETE
+    ${sz4Table} SZ4 ON SE1.E1_NUM = SZ4.Z4_BILHETE AND SZ4.D_E_L_E_T_ = ''
 WHERE 
-    SE1140.E1_FILIAL = '01'
-    AND SE1140.D_E_L_E_T_ = ''
-    AND SE1140.E1_SALDO <> '0'
-    AND SE1140.E1_TIPO <> 'NCC'
-    AND SE1140.E1_NOMCLI <> 'A VISTA'
-    AND SE1140.E1_VENCREA < DATEADD(DAY, -1, GETDATE())
-    AND SZ4140.Z4_VEND = @vendedorCode
-ORDER BY SE1140.E1_CLIENTE;
+    SE1.E1_FILIAL = '01'
+    AND SE1.D_E_L_E_T_ = ''
+    AND SE1.E1_SALDO <> '0'
+    AND SE1.E1_TIPO <> 'NCC'
+    AND SE1.E1_NOMCLI <> 'A VISTA'
+    AND SE1.E1_VENCREA < DATEADD(DAY, -1, GETDATE())
+    AND SZ4.Z4_VEND = @vendedorCode
+ORDER BY SE1.E1_CLIENTE;
 `;
 
     const request = pool.request();
@@ -3553,7 +3588,8 @@ ORDER BY SE1140.E1_CLIENTE;
       // Gera relatório sintético
       const pdfBuffer = await generateFiadoVendedorSinteticoReport(
         vendedorNome,
-        result.recordset
+        result.recordset,
+        req.query.empresa
       );
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
@@ -3565,7 +3601,8 @@ ORDER BY SE1140.E1_CLIENTE;
       // Gera relatório analítico
       const pdfBuffer = await generateFiadoVendedorAnaliticoReport(
         vendedorNome,
-        result.recordset
+        result.recordset,
+        req.query.empresa
       );
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader(
@@ -3583,47 +3620,51 @@ ORDER BY SE1140.E1_CLIENTE;
 });
 
 const generateClienteReport = require("./src/Financeiro/routes/generateClienteReport");
+const generateLiderReport = require("./src/Financeiro/routes/generateLiderReport");
 
 // Endpoint para gerar o relatório PDF de um cliente específico
 app.get("/relatorio-cliente", async (req, res) => {
   const cliente = req.query.cliente;
+  const se1Table = getProtheusTable("SE1", req);
+  const sa1Table = getProtheusTable("SA1", req);
+  const sz4Table = getProtheusTable("SZ4", req);
 
   try {
     await getMSSQLPool();
     const query = `
         SELECT DISTINCT 
-            SE1140.E1_NUM, 
-            SZ4140.Z4_NOTA,
-            SE1140.E1_TIPO,
-            SZ4140.Z4_NOTA, 
-            SE1140.E1_EMISSAO, 
-            SE1140.E1_VENCREA, 
-            SE1140.E1_CLIENTE, 
-            SE1140.E1_NOMCLI, 
-            SE1140.E1_VALOR,
-            SE1140.E1_SALDO,
-            SZ4140.Z4_NOMVEN AS NOME_VENDEDOR
+            SE1.E1_NUM, 
+            SZ4.Z4_NOTA,
+            SE1.E1_TIPO,
+            SE1.E1_EMISSAO, 
+            SE1.E1_VENCREA, 
+            SE1.E1_CLIENTE, 
+            SE1.E1_NOMCLI, 
+            SE1.E1_VALOR,
+            CAST(CASE WHEN ISNULL(SZ4.Z4_PERDESB, 0) > 0 THEN SE1.E1_VALOR * (SZ4.Z4_PERDESB / 100.0) ELSE 0 END AS NUMERIC(15,2)) AS E1_DESCONT,
+            CAST(CASE WHEN ISNULL(SZ4.Z4_PERDESB, 0) > 0 THEN SE1.E1_SALDO - (SE1.E1_SALDO * (SZ4.Z4_PERDESB / 100.0)) ELSE SE1.E1_SALDO END AS NUMERIC(15,2)) AS E1_SALDO,
+            SZ4.Z4_NOMVEN AS NOME_VENDEDOR
         FROM 
-            SE1140
+            ${se1Table} SE1
         JOIN 
-            SA1140 ON SE1140.E1_CLIENTE = SA1140.A1_COD
+            ${sa1Table} SA1 ON SE1.E1_CLIENTE = SA1.A1_COD
         JOIN 
-            SZ4140 ON SE1140.E1_NUM = SZ4140.Z4_BILHETE
+            ${sz4Table} SZ4 ON SE1.E1_NUM = SZ4.Z4_BILHETE AND SZ4.D_E_L_E_T_ = ''
         WHERE 
-            SE1140.E1_FILIAL = '01'
-            AND SE1140.D_E_L_E_T_ = ''
-            AND SE1140.E1_SALDO <> '0'
-            AND SE1140.E1_TIPO <> 'NCC'
-            AND SE1140.E1_VENCREA < DATEADD(DAY, -1, GETDATE())
-            AND SE1140.E1_NOMCLI = @cliente
-        ORDER BY SE1140.E1_VENCREA;
+            SE1.E1_FILIAL = '01'
+            AND SE1.D_E_L_E_T_ = ''
+            AND SE1.E1_SALDO <> '0'
+            AND SE1.E1_TIPO <> 'NCC'
+            AND SE1.E1_VENCREA < DATEADD(DAY, -1, GETDATE())
+            AND SE1.E1_NOMCLI = @cliente
+        ORDER BY SE1.E1_VENCREA;
         `;
 
     const request = new sql.Request();
     request.input("cliente", sql.VarChar, cliente);
     const result = await request.query(query);
 
-    const pdfBuffer = await generateClienteReport(cliente, result.recordset);
+    const pdfBuffer = await generateClienteReport(cliente, result.recordset, req.query.empresa);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
@@ -3636,9 +3677,92 @@ app.get("/relatorio-cliente", async (req, res) => {
   }
 });
 
+// Relatório customizado: Grupo Lider Comercio e Industria (CNPJ tronco 0505467100) — sempre empresa 240
+app.get("/relatorio-lider", async (req, res) => {
+  // Sempre usa tabelas da empresa 240 (Bem pra Gente), independente do parâmetro recebido
+  const fakeReq240 = { query: { empresa: "240" }, body: {} };
+  const se1Table = getProtheusTable("SE1", fakeReq240);
+  const sa1Table = getProtheusTable("SA1", fakeReq240);
+  const sz4Table = getProtheusTable("SZ4", fakeReq240);
+  const empresa = "240";
+  const tipo = req.query.tipo || "todos"; // "todos" ou "vencido"
+  const filtroVencido = tipo === "vencido" ? "AND SE1.E1_VENCREA < GETDATE()" : "";
+
+  try {
+    const pool = await getMSSQLPool();
+    const result = await pool.request().query(`
+      SELECT * FROM (
+        SELECT DISTINCT
+            SE1.E1_NUM,
+            SE1.E1_CLIENTE,
+            RTRIM(SE1.E1_NOMCLI)    AS E1_NOMCLI,
+            SE1.E1_TIPO,
+            SE1.E1_EMISSAO,
+            SE1.E1_VENCREA,
+            SE1.E1_VALOR,
+            CAST(CASE WHEN ISNULL(SZ4.Z4_PERDESB, 0) > 0 THEN SE1.E1_VALOR * (SZ4.Z4_PERDESB / 100.0) ELSE 0 END AS NUMERIC(15,2)) AS E1_DESCONT,
+            CAST(CASE WHEN ISNULL(SZ4.Z4_PERDESB, 0) > 0 THEN SE1.E1_SALDO - (SE1.E1_SALDO * (SZ4.Z4_PERDESB / 100.0)) ELSE SE1.E1_SALDO END AS NUMERIC(15,2)) AS E1_SALDO,
+            RTRIM(SZ4.Z4_NOTA)      AS Z4_NOTA,
+            RTRIM(SZ4.Z4_NOMVEN)    AS NOME_VENDEDOR,
+            RTRIM(SA1.A1_CGC)       AS A1_CGC,
+            RTRIM(SA1.A1_MUN)       AS A1_MUN,
+            RTRIM(SA1.A1_EST)       AS A1_EST
+        FROM ${se1Table} SE1
+        JOIN ${sa1Table} SA1 ON SE1.E1_CLIENTE = SA1.A1_COD
+                             AND SA1.A1_FILIAL  = '01'
+                             AND SA1.D_E_L_E_T_ = ''
+        JOIN ${sz4Table} SZ4 ON SE1.E1_NUM = SZ4.Z4_BILHETE AND SZ4.D_E_L_E_T_ = ''
+        WHERE SE1.E1_FILIAL    = '01'
+          AND SE1.D_E_L_E_T_   = ''
+          AND SE1.E1_SALDO    <> '0'
+          AND SE1.E1_TIPO     <> 'NCC'
+          AND SA1.A1_CGC LIKE '%0505467100%'
+          ${filtroVencido}
+      ) AS sub
+      ORDER BY E1_NOMCLI, E1_VENCREA
+    `);
+
+    if (!result.recordset.length) {
+      return res.status(404).send("Nenhum título encontrado para o Grupo Lider com o filtro selecionado.");
+    }
+
+    // Agrupar por loja (E1_CLIENTE)
+    const lojaMap = {};
+    for (const row of result.recordset) {
+      const key = row.E1_CLIENTE;
+      if (!lojaMap[key]) {
+        lojaMap[key] = {
+          codigo: row.E1_CLIENTE,
+          nome: row.E1_NOMCLI,
+          cnpj: row.A1_CGC,
+          cidade: row.A1_MUN,
+          estado: row.A1_EST,
+          vendedor: row.NOME_VENDEDOR,
+          titulos: [],
+        };
+      }
+      lojaMap[key].titulos.push(row);
+    }
+
+    const lojas = Object.values(lojaMap);
+    const pdfBuffer = await generateLiderReport(lojas, empresa, tipo);
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=relatorio_grupo_lider.pdf");
+    res.send(pdfBuffer);
+  } catch (error) {
+    console.error("Erro ao gerar relatório Lider:", error);
+    res.status(500).send("Erro ao gerar o relatório");
+  }
+});
+
 // Rota para gerar o relatório de carteira de clientes de um vendedor
 app.get("/vendedor-cliente", async (req, res) => {
   const vendedorCode = req.query.vendedor;
+  const sa1Table = getProtheusTable("SA1", req);
+  const sa3Table = getProtheusTable("SA3", req);
+  const se1Table = getProtheusTable("SE1", req);
+  const se4Table = getProtheusTable("SE4", req);
 
   if (!vendedorCode) {
     return res.status(400).send("O código do vendedor é obrigatório.");
@@ -3650,7 +3774,7 @@ app.get("/vendedor-cliente", async (req, res) => {
     // Buscar o nome do vendedor
     const vendRes = await pool.request()
       .input("code", sql.VarChar, vendedorCode)
-      .query("SELECT A3_NOME FROM SA3140 WHERE A3_COD = @code AND A3_FILIAL = '01'");
+      .query(`SELECT A3_NOME FROM ${sa3Table} WHERE A3_COD = @code AND A3_FILIAL = '01'`);
     
     const vendedorNome = vendRes.recordset.length > 0 
       ? vendRes.recordset[0].A3_NOME.trim() 
@@ -3669,7 +3793,7 @@ SELECT
     COALESCE(COUNT(CASE WHEN YEAR(E1.E1_EMISSAO) = YEAR(GETDATE()) THEN 1 END), 0) AS QuantidadeTitulosAnoAtual,
     COALESCE((
         SELECT AVG(E1_SUB.E1_VALOR)
-        FROM SE1140 E1_SUB
+        FROM ${se1Table} E1_SUB
         WHERE E1_SUB.E1_CLIENTE = A1.A1_COD
         AND E1_SUB.E1_EMISSAO >= DATEADD(YEAR, -5, GETDATE())
         AND E1_SUB.E1_FILIAL = '01'
@@ -3677,12 +3801,12 @@ SELECT
     ), 0) AS MediaValorPedido,
     E4.E4_DESCRI AS CondicaoPagamento  -- Adicionando a descrição da condição de pagamento
 FROM 
-    SA1140 A1
+    ${sa1Table} A1
 INNER JOIN 
-    SA3140 A3 
+    ${sa3Table} A3 
     ON A1.A1_VEND = A3.A3_COD
 LEFT JOIN 
-    SE1140 E1 
+    ${se1Table} E1 
     ON A1.A1_COD = E1.E1_CLIENTE
     AND E1.E1_FILIAL = '01'
     AND E1.D_E_L_E_T_ = ''
@@ -3690,7 +3814,7 @@ LEFT JOIN
     AND E1.E1_PREFIXO = 'BIL'
     AND E1.E1_VENCTO < GETDATE()
 LEFT JOIN 
-    SE4140 E4  -- Realizando o JOIN com a tabela SE4140
+    ${se4Table} E4  -- Realizando o JOIN com a tabela SE4
     ON A1.A1_COND = E4.E4_CODIGO
 WHERE 
     A1.A1_FILIAL = '01'
@@ -3717,7 +3841,7 @@ GROUP BY
     }
 
     // Geração do PDF
-    const pdfBuffer = await generateVendedorReport(vendedorNome, result.recordset); // Chama a função correta para gerar o relatório
+    const pdfBuffer = await generateVendedorReport(vendedorNome, result.recordset, undefined, req.query.empresa); // Chama a função correta para gerar o relatório
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",
@@ -3732,6 +3856,10 @@ GROUP BY
 
 app.get("/vendedor-relatorio", async (req, res) => {
   const vendedorCode = req.query.vendedor;
+  const sa1Table = getProtheusTable("SA1", req);
+  const sa3Table = getProtheusTable("SA3", req);
+  const se1Table = getProtheusTable("SE1", req);
+  const se4Table = getProtheusTable("SE4", req);
 
   if (!vendedorCode) {
     return res.status(400).send("O código do vendedor é obrigatório.");
@@ -3743,7 +3871,7 @@ app.get("/vendedor-relatorio", async (req, res) => {
     // Buscar o nome do vendedor
     const vendRes = await pool.request()
       .input("code", sql.VarChar, vendedorCode)
-      .query("SELECT A3_NOME FROM SA3140 WHERE A3_COD = @code AND A3_FILIAL = '01'");
+      .query(`SELECT A3_NOME FROM ${sa3Table} WHERE A3_COD = @code AND A3_FILIAL = '01'`);
     
     const vendedorNome = vendRes.recordset.length > 0 
       ? vendRes.recordset[0].A3_NOME.trim() 
@@ -3762,7 +3890,7 @@ SELECT
     COALESCE(COUNT(CASE WHEN YEAR(E1.E1_EMISSAO) = YEAR(GETDATE()) THEN 1 END), 0) AS QuantidadeTitulosAnoAtual,
     COALESCE((
         SELECT AVG(E1_SUB.E1_VALOR)
-        FROM SE1140 E1_SUB
+        FROM ${se1Table} E1_SUB
         WHERE E1_SUB.E1_CLIENTE = A1.A1_COD
         AND E1_SUB.E1_EMISSAO >= DATEADD(YEAR, -5, GETDATE())
         AND E1_SUB.E1_FILIAL = '01'
@@ -3770,12 +3898,12 @@ SELECT
     ), 0) AS MediaValorPedido,
     E4.E4_DESCRI AS CondicaoPagamento  -- Adicionando a descrição da condição de pagamento
 FROM 
-    SA1140 A1
+    ${sa1Table} A1
 INNER JOIN 
-    SA3140 A3 
+    ${sa3Table} A3 
     ON A1.A1_VEND = A3.A3_COD
 LEFT JOIN 
-    SE1140 E1 
+    ${se1Table} E1 
     ON A1.A1_COD = E1.E1_CLIENTE
     AND E1.E1_FILIAL = '01'
     AND E1.D_E_L_E_T_ = ''
@@ -3783,7 +3911,7 @@ LEFT JOIN
     AND E1.E1_PREFIXO = 'BIL'
     AND E1.E1_VENCTO < GETDATE()
 LEFT JOIN 
-    SE4140 E4  -- Realizando o JOIN com a tabela SE4140
+    ${se4Table} E4  -- Realizando o JOIN com a tabela SE4
     ON A1.A1_COND = E4.E4_CODIGO
 WHERE 
     A1.A1_FILIAL = '01'
@@ -3810,7 +3938,7 @@ SELECT
     E1.E1_NOMCLI AS NomeCliente,
     COUNT(CASE WHEN DATEDIFF(DAY, E1.E1_VENCTO, COALESCE(E1.E1_BAIXA, GETDATE())) > 0 THEN 1 END) AS TitulosAtrasados,
     COUNT(CASE WHEN DATEDIFF(DAY, E1.E1_VENCTO, COALESCE(E1.E1_BAIXA, GETDATE())) <= 0 THEN 1 END) AS TitulosEmDia
-FROM SE1140 E1
+FROM ${se1Table} E1
 WHERE E1.E1_FILIAL = '01'
     AND E1.D_E_L_E_T_ = ''  -- Não deletado
 GROUP BY E1.E1_CLIENTE, E1.E1_NOMCLI
@@ -3825,7 +3953,8 @@ ORDER BY TitulosAtrasados DESC, TitulosEmDia DESC;
     const pdfBuffer = await generateVendedorReport(
       vendedorNome,
       resultClientes.recordset,
-      resultRanking.recordset
+      resultRanking.recordset,
+      req.query.empresa
     );
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(

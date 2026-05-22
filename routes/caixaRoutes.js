@@ -681,6 +681,8 @@ module.exports = (getPool, authenticateToken) => {
             F2.F2_CLIENTE AS codCliente, 
             F2.F2_LOJA AS loja, 
             A1.A1_NOME AS nomeCliente, 
+            A1.A1_DDD AS dddCliente,
+            A1.A1_TEL AS telCliente,
             F2.F2_EMISSAO AS dataEmissao, 
             F2.F2_VALBRUT AS valor,
             F2.F2_FILIAL AS filial,
@@ -691,8 +693,8 @@ module.exports = (getPool, authenticateToken) => {
             ) AS temBoleto
         FROM SF2140YY F2 (NOLOCK)
         OUTER APPLY (
-            SELECT TOP 1 A1_NOME 
-            FROM SA1140 (NOLOCK) 
+            SELECT TOP 1 A1_NOME, A1_DDD, A1_TEL
+            FROM SA1140XX (NOLOCK) 
             WHERE A1_COD = F2.F2_CLIENTE AND A1_LOJA = F2.F2_LOJA AND D_E_L_E_T_ = ''
         ) A1
         OUTER APPLY (
@@ -724,6 +726,8 @@ module.exports = (getPool, authenticateToken) => {
         codCliente: r.codCliente.trim(),
         loja: r.loja.trim(),
         nomeCliente: r.nomeCliente ? r.nomeCliente.trim() : "CLIENTE NÃO ENCONTRADO",
+        dddCliente: r.dddCliente ? r.dddCliente.trim() : "",
+        telCliente: r.telCliente ? r.telCliente.trim() : "",
         dataEmissao: `${r.dataEmissao.substring(0,4)}-${r.dataEmissao.substring(4,6)}-${r.dataEmissao.substring(6,8)}`,
         valor: parseFloat(r.valor || 0),
         bilhete: r.bilhete ? r.bilhete.trim() : "",
@@ -752,7 +756,7 @@ module.exports = (getPool, authenticateToken) => {
         SELECT 
             F2_DOC, F2_SERIE, F2_CLIENTE, F2_LOJA, A1_NOME, F2_EMISSAO, F2_VALBRUT
         FROM SF2140YY F2 (NOLOCK)
-        LEFT JOIN SA1140 A1 (NOLOCK) ON A1_COD = F2_CLIENTE AND A1_LOJA = F2_LOJA AND A1.D_E_L_E_T_ = ''
+        LEFT JOIN SA1140XX A1 (NOLOCK) ON A1_COD = F2_CLIENTE AND A1_LOJA = F2_LOJA AND A1.D_E_L_E_T_ = ''
         WHERE F2.D_E_L_E_T_ = '' AND F2_DOC = @doc AND F2_SERIE = @serie
       `;
       const headerRes = await pool.request()
@@ -827,7 +831,7 @@ module.exports = (getPool, authenticateToken) => {
             (SELECT TOP 1 F3_PROTOC FROM SF3140 WHERE F3_NFISCAL = F2_DOC AND F3_SERIE = F2_SERIE AND F3_FILIAL = F2_FILIAL AND D_E_L_E_T_ = '') AS F3_PROTOC,
             (SELECT TOP 1 Z4_BILHETE FROM SZ4140 WHERE Z4_NOTA = F2_DOC AND Z4_FILIAL = F2_FILIAL AND D_E_L_E_T_ = '') AS Z4_BILHETE
         FROM SF2140YY F2 (NOLOCK)
-        LEFT JOIN SA1140 A1 (NOLOCK) ON A1_COD = F2_CLIENTE AND A1_LOJA = F2_LOJA AND A1.D_E_L_E_T_ = ''
+        LEFT JOIN SA1140XX A1 (NOLOCK) ON A1_COD = F2_CLIENTE AND A1_LOJA = F2_LOJA AND A1.D_E_L_E_T_ = ''
         WHERE F2.D_E_L_E_T_ = '' AND F2_DOC = @doc AND F2_SERIE = @serie
       `;
       const headerRes = await pool.request()
@@ -1284,7 +1288,7 @@ module.exports = (getPool, authenticateToken) => {
       const nfeResult = await mPool.request().input("doc", doc).input("serie", serie).input("filial", filial)
         .query(`SELECT TOP 1 F2_DOC, F2_SERIE, F2_EMISSAO, F2_VALBRUT, F2_CLIENTE, F2_LOJA, F2_FILIAL, A1_NOME, A1_CGC, A1_END, A1_BAIRRO, A1_MUN, A1_EST, A1_CEP 
                 FROM SF2140YY F2 (NOLOCK) 
-                LEFT JOIN SA1140 A1 (NOLOCK) ON A1_COD = F2_CLIENTE AND A1_LOJA = F2_LOJA AND A1.D_E_L_E_T_ = '' 
+                LEFT JOIN SA1140XX A1 (NOLOCK) ON A1_COD = F2_CLIENTE AND A1_LOJA = F2_LOJA AND A1.D_E_L_E_T_ = '' 
                 WHERE F2.D_E_L_E_T_ = '' AND F2_DOC = @doc AND (F2_FILIAL = @filial OR F2_FILIAL = '01') AND F2_SERIE = @serie`);
 
       if (nfeResult.recordset.length === 0) return res.status(404).json({ error: "NFE não encontrada." });

@@ -446,7 +446,7 @@ SELECT
           header: "Falta",
           key: "falta",
           width: 12,
-          style: { numFmt: "#.##0,00" },
+          style: { numFmt: "#,##0.00" },
         },
         {
           header: "Preço Compra",
@@ -582,12 +582,38 @@ SELECT
           { header: "Nota de Origem", key: "nota_origem", width: 16 },
           { header: "Vendedor", key: "vendedor", width: 20 },
           { header: "Produto", key: "produto_nome", width: 25 },
+          {
+            header: "Quantidade",
+            key: "quantidade",
+            width: 12,
+            style: { numFmt: "#,##0.00" },
+          },
           { header: "1ª Unidade", key: "um1", width: 10 },
+          {
+            header: "Fator Conversão",
+            key: "fator_conversao",
+            width: 15,
+            style: { numFmt: "#,##0" },
+          },
+          {
+            header: "Qtd. Segunda Unidade",
+            key: "qtd_segum",
+            width: 20,
+            style: { numFmt: "#,##0.00" },
+          },
           { header: "2ª Unidade", key: "um2", width: 10 },
-          { header: "Qtd 2ª UM", key: "qtd_segum", width: 12, style: { numFmt: "#.##0,00" } },
-          { header: "Quantidade", key: "quantidade", width: 12, style: { numFmt: "#.##0,00" } },
-          { header: "Valor", key: "valor", width: 12, style: { numFmt: "#.##0,00" } },
-          { header: "Total", key: "total", width: 12, style: { numFmt: "#.##0,00" } },
+          {
+            header: "Valor",
+            key: "valor",
+            width: 12,
+            style: { numFmt: "#,##0.00" },
+          },
+          {
+            header: "Total",
+            key: "total",
+            width: 12,
+            style: { numFmt: "#,##0.00" },
+          },
           { header: "Motivo", key: "motivo", width: 20 },
           { header: "Tipo", key: "tipo", width: 12 },
           { header: "Departamento", key: "departamento", width: 15 },
@@ -637,6 +663,7 @@ SELECT
               faturado_por: realUsuario,
               um1: units.um,
               um2: units.segum,
+              fator_conversao: units.conv > 0 ? units.conv : null,
               qtd_segum: qtdSegum > 0 ? qtdSegum : null
             });
           }

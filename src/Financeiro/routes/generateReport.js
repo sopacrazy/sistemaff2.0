@@ -88,7 +88,7 @@ function formatDate(dateString) {
 }
 
 // Função para gerar o relatório PDF de fiado por vendedor
-async function generateFiadoVendedorReport(vendedor, titulos) {
+async function generateFiadoVendedorReport(vendedor, titulos, empresa) {
   const printer = new PdfPrinter(fonts);
 
   // Cálculos para o resumo
@@ -100,6 +100,18 @@ async function generateFiadoVendedorReport(vendedor, titulos) {
   const mediaDiasAtraso = calculateAverageDaysLate(titulos);
   const situacaoClientes = getSituacaoClientes(totalClientesEmAtraso);
 
+  const totalValorBruto = titulos.reduce((sum, item) => sum + parseFloat(item.E1_VALOR || 0), 0);
+  const totalDesconto = titulos.reduce((sum, item) => sum + parseFloat(item.E1_DESCONT || 0), 0);
+  const totalLiquido = titulos.reduce((sum, item) => sum + parseFloat(item.E1_VALLIQ || 0), 0);
+  const totalSaldo = titulos.reduce((sum, item) => sum + parseFloat(item.E1_SALDO || 0), 0);
+
+  const isEmpresa240 = empresa === "240";
+  const logoPath = isEmpresa240 ? "assets/bempraagente-logo.png" : "src/img/logo.png";
+  const companyName = isEmpresa240 ? "BEM PRA GENTE" : "FORT FRUIT LTDA";
+  const companyDetails = isEmpresa240
+    ? "ALAMEDA CEASA, SN\nCURIO, BELEM, PA\nCEP: 66.610-120"
+    : "ALAMEDA CEASA, SN\nCURIO, BELEM, PA\nCEP: 66.610-120\nPABX/FAX: 55-91-32457463\nCNPJ: 02.338.006/0001-07\nI.E.: 151.977.887";
+
   // Definir o conteúdo do PDF com layout conforme solicitado
   const docDefinition = {
     content: [
@@ -107,16 +119,16 @@ async function generateFiadoVendedorReport(vendedor, titulos) {
         columns: [
           // Logo à esquerda
           {
-            image: "src/img/logo.png", // Caminho para a logo
+            image: logoPath, // Caminho para a logo
             width: 50,
             alignment: "left",
           },
           // Informações da empresa ao lado da logo
           {
             text: [
-              { text: "FORT FRUIT LTDA\n", fontSize: 12, bold: true }, // Nome maior e negrito
+              { text: `${companyName}\n`, fontSize: 12, bold: true }, // Nome maior e negrito
               {
-                text: "ALAMEDA CEASA, SN\nCURIO, BELEM, PA\nCEP: 66.610-120\nPABX/FAX: 55-91-32457463\nCNPJ: 02.338.006/0001-07\nI.E.: 151.977.887",
+                text: companyDetails,
                 fontSize: 8,
               },
             ],
@@ -158,43 +170,41 @@ async function generateFiadoVendedorReport(vendedor, titulos) {
       {
         style: "tableExample",
         table: {
-          widths: ["auto", "auto", "auto", "auto", "*", "auto", "auto", "auto"], // Adicionamos "Saldo Devedor" como última coluna
+          widths: ["auto", "auto", "auto", "auto", "*", "auto", "auto", "auto", "auto"],
           body: [
             [
               { text: "Numero", bold: true },
-              { text: "Nota", bold: true }, // Coluna para Nota
+              { text: "Nota", bold: true },
               { text: "Data Emissão", bold: true },
               { text: "Vencimento", bold: true },
               { text: "Cliente", bold: true },
-              { text: "Valor Bruto", bold: true },
-              { text: "Dias em Atraso", bold: true }, // Movido para antes de "Saldo Devedor"
-              { text: "Saldo Devedor", bold: true }, // Nova coluna para Saldo Devedor
+              { text: "Valor Bruto", bold: true, alignment: "right" },
+              { text: "Desconto", bold: true, alignment: "right" },
+              { text: "Atraso", bold: true, alignment: "center" },
+              { text: "Saldo Devedor", bold: true, alignment: "right" },
             ],
             ...titulos.map((titulo) => [
               titulo.E1_NUM,
-              titulo.Z4_NOTA || "-", // Nota
-              formatDate(titulo.E1_EMISSAO), // Data de Emissão formatada corretamente
-              formatDate(titulo.E1_VENCREA), // Data de Vencimento formatada corretamente
-              titulo.E1_NOMCLI, // Nome do cliente
-              formatCurrency(titulo.E1_VALOR), // Formatar o valor corretamente
-              calculateDaysLate(titulo.E1_VENCREA), // Calcular dias em atraso
-              formatCurrency(titulo.E1_SALDO), // Formatar o saldo devedor corretamente
+              titulo.Z4_NOTA || "-",
+              formatDate(titulo.E1_EMISSAO),
+              formatDate(titulo.E1_VENCREA),
+              titulo.E1_NOMCLI,
+              formatCurrency(titulo.E1_VALOR),
+              formatCurrency(titulo.E1_DESCONT),
+              { text: `${calculateDaysLate(titulo.E1_VENCREA)}d`, alignment: "center" },
+              formatCurrency(titulo.E1_SALDO),
             ]),
+            [
+              { text: "TOTAL GERAL", bold: true, colSpan: 5 },
+              {}, {}, {}, {},
+              { text: formatCurrency(totalValorBruto), bold: true, alignment: "right" },
+              { text: formatCurrency(totalDesconto), bold: true, alignment: "right" },
+              { text: "", alignment: "center" },
+              { text: formatCurrency(totalSaldo), bold: true, alignment: "right" },
+            ]
           ],
         },
         layout: "noBorders", // Remover as bordas da tabela
-      },
-      {
-        columns: [
-          { text: "TOTAL CLIENTE --->", bold: true, alignment: "left" },
-          {
-            text: formatCurrency(
-              titulos.reduce((sum, item) => sum + parseFloat(item.E1_VALOR), 0)
-            ), // Formatar o total
-            bold: true,
-            alignment: "right",
-          },
-        ],
       },
     ],
     styles: {

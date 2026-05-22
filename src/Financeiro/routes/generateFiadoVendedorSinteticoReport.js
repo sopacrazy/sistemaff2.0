@@ -26,7 +26,8 @@ const formatCurrency = (value) => {
 // Função para gerar o relatório PDF Sintético
 const generateFiadoVendedorSinteticoReport = async (
   vendedor,
-  clientesResumo
+  clientesResumo,
+  empresa
 ) => {
   // Agrupar clientes e somar os valores de cada um
   const groupedClientes = clientesResumo.reduce((acc, cliente) => {

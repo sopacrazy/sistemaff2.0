@@ -92,13 +92,16 @@ const classificarClientes = (clientes) => {
   return { recentes, antigos, nuncaCompraram };
 };
 
-async function generateVendedorReport(vendedor, clientes) {
+async function generateVendedorReport(vendedor, clientes, ranking, empresa) {
   // Classifica os clientes em grupos
   const { recentes, antigos, nuncaCompraram } = classificarClientes(clientes);
 
   const totalClientes = clientes.length;
   const totalNuncaMaisCompraram = antigos.length;
   const totalCadastradosSomente = nuncaCompraram.length;
+
+  const isEmpresa240 = empresa === "240";
+  const finalLogo = isEmpresa240 ? "./assets/bempraagente-logo.png" : caminhoLogo;
 
   // Função para montar o corpo da tabela de clientes
   // Função para montar o corpo da tabela de clientes sem a coluna "Média Valor Pedido"
@@ -142,12 +145,29 @@ async function generateVendedorReport(vendedor, clientes) {
       {
         columns: [
           {
-            image: carregarImagemBase64(caminhoLogo), // Usando a função de carregar a imagem
+            image: carregarImagemBase64(finalLogo), // Usando a função de carregar a imagem
             width: 60, // Ajuste para diminuir o tamanho da logo
             height: 60, // Mantém a proporção da logo
           },
           {
-            text: [
+            text: isEmpresa240 ? [
+              { text: "BEM PRA GENTE\n", style: "header", alignment: "left" },
+              {
+                text: "ALAMEDA CEASA, SN\n",
+                style: "subheader",
+                alignment: "left",
+              },
+              {
+                text: "CURIO, BELEM, PA\n",
+                style: "subheader",
+                alignment: "left",
+              },
+              {
+                text: "CEP: 66.610-120\n",
+                style: "subheader",
+                alignment: "left",
+              }
+            ] : [
               { text: "FORT FRUIT LTDA\n", style: "header", alignment: "left" }, // Alinhamento ajustado
               {
                 text: "ALAMEDA CEASA, SN\n",

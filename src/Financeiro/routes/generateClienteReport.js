@@ -98,11 +98,23 @@ function generateClienteResumo(titulos) {
 }
 
 // Função para gerar o relatório PDF de títulos vencidos por cliente
-async function generateClienteReport(cliente, titulos) {
+async function generateClienteReport(cliente, titulos, empresa) {
   const printer = new PdfPrinter(fonts);
 
   const { valorTotalClientes, mediaDiasAtraso, situacaoClientes } =
     generateClienteResumo(titulos);
+
+  const totalValorBruto = titulos.reduce((sum, item) => sum + parseFloat(item.E1_VALOR || 0), 0);
+  const totalDesconto = titulos.reduce((sum, item) => sum + parseFloat(item.E1_DESCONT || 0), 0);
+  const totalLiquido = titulos.reduce((sum, item) => sum + parseFloat(item.E1_VALLIQ || 0), 0);
+  const totalSaldo = titulos.reduce((sum, item) => sum + parseFloat(item.E1_SALDO || 0), 0);
+
+  const isEmpresa240 = empresa === "240";
+  const logoPath = isEmpresa240 ? "assets/bempraagente-logo.png" : "src/img/logo.png";
+  const companyName = isEmpresa240 ? "BEM PRA GENTE" : "FORT FRUIT LTDA";
+  const companyDetails = isEmpresa240
+    ? "ALAMEDA CEASA, SN\nCURIO, BELEM, PA\nCEP: 66.610-120"
+    : "ALAMEDA CEASA, SN\nCURIO, BELEM, PA\nCEP: 66.610-120\nPABX/FAX: 55-91-32457463\nCNPJ: 02.338.006/0001-07\nI.E.: 151.977.887";
 
   // Definir o conteúdo do PDF
   const docDefinition = {
@@ -111,16 +123,16 @@ async function generateClienteReport(cliente, titulos) {
         columns: [
           // Logo à esquerda
           {
-            image: "src/img/logo.png", // Caminho para a logo
+            image: logoPath, // Caminho para a logo
             width: 50,
             alignment: "left",
           },
           // Informações da empresa ao lado da logo
           {
             text: [
-              { text: "FORT FRUIT LTDA\n", fontSize: 12, bold: true }, // Nome maior e negrito
+              { text: `${companyName}\n`, fontSize: 12, bold: true }, // Nome maior e negrito
               {
-                text: "ALAMEDA CEASA, SN\nCURIO, BELEM, PA\nCEP: 66.610-120\nPABX/FAX: 55-91-32457463\nCNPJ: 02.338.006/0001-07\nI.E.: 151.977.887",
+                text: companyDetails,
                 fontSize: 8,
               },
             ],
@@ -128,50 +140,30 @@ async function generateClienteReport(cliente, titulos) {
           },
           // Resumo do cliente à direita
           {
-            stack: [
-              {
-                text: `Resumo do Cliente: ${cliente}`,
-                fontSize: 10,
-                bold: true,
-                alignment: "right",
-              },
-              {
-                text: `Valor total dos títulos: ${formatCurrency(
-                  valorTotalClientes
-                )}`,
-                fontSize: 8,
-                alignment: "right",
-              },
-              {
-                text: `Média de dias em atraso: ${mediaDiasAtraso} dias`,
-                fontSize: 8,
-                alignment: "right",
-              },
-              {
-                text: `${situacaoClientes.situacao}`,
-                fontSize: 8,
-                bold: true,
-                alignment: "right",
-                color: situacaoClientes.color,
-              },
+            text: [
+              { text: `Resumo do Cliente: ${cliente}\n`, fontSize: 10, bold: true },
+              { text: `Valor total dos títulos: ${formatCurrency(valorTotalClientes)}\n`, fontSize: 8 },
+              { text: `Média de dias em atraso: ${mediaDiasAtraso} dias\n`, fontSize: 8 },
+              { text: `${situacaoClientes.situacao}`, fontSize: 8, bold: true, color: situacaoClientes.color }
             ],
-            alignment: "right",
+            alignment: "right"
           },
         ],
       },
       {
         style: "tableExample",
         table: {
-          widths: ["auto", "auto", "auto", "*", "auto", "auto", "auto"],
+          widths: ["auto", "auto", "auto", "*", "auto", "auto", "auto", "auto"],
           body: [
             [
               { text: "Numero", bold: true },
               { text: "Nota", bold: true },
               { text: "Data Emissão", bold: true },
               { text: "Vencimento", bold: true },
-              { text: "Valor Bruto", bold: true },
-              { text: "Dias em Atraso", bold: true },
-              { text: "Saldo Devedor", bold: true },
+              { text: "Valor Bruto", bold: true, alignment: "right" },
+              { text: "Desconto", bold: true, alignment: "right" },
+              { text: "Atraso", bold: true, alignment: "center" },
+              { text: "Saldo Devedor", bold: true, alignment: "right" },
             ],
             ...titulos.map((titulo) => [
               titulo.E1_NUM,
@@ -179,22 +171,21 @@ async function generateClienteReport(cliente, titulos) {
               formatDate(titulo.E1_EMISSAO), // Data de Emissão
               formatDate(titulo.E1_VENCREA), // Data de Vencimento
               formatCurrency(titulo.E1_VALOR), // Valor Bruto
-              calculateDaysLate(titulo.E1_VENCREA), // Dias em Atraso
+              formatCurrency(titulo.E1_DESCONT), // Desconto
+              { text: `${calculateDaysLate(titulo.E1_VENCREA)}d`, alignment: "center" }, // Dias em Atraso
               formatCurrency(titulo.E1_SALDO), // Saldo Devedor
             ]),
+            [
+              { text: "TOTAL CLIENTE", bold: true, colSpan: 4 },
+              {}, {}, {},
+              { text: formatCurrency(totalValorBruto), bold: true, alignment: "right" },
+              { text: formatCurrency(totalDesconto), bold: true, alignment: "right" },
+              { text: "", alignment: "center" },
+              { text: formatCurrency(totalSaldo), bold: true, alignment: "right" },
+            ]
           ],
         },
         layout: "noBorders", // Remover as bordas da tabela
-      },
-      {
-        columns: [
-          { text: "TOTAL CLIENTE --->", bold: true, alignment: "left" },
-          {
-            text: formatCurrency(valorTotalClientes),
-            bold: true,
-            alignment: "right",
-          },
-        ],
       },
     ],
     styles: {
