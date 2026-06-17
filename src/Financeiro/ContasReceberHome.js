@@ -45,6 +45,14 @@ const ContasReceberHome = () => {
       icon: "query_stats",
       color: "bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400",
       path: "/financeiro/contas-receber/produto-cliente"
+    },
+    {
+      id: "vendas_risco",
+      title: "Vendas de Risco D",
+      subtitle: "Vendas para clientes com títulos em atraso",
+      icon: "gavel",
+      color: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+      path: "/financeiro/contas-receber/vendas-risco"
     }
   ];
 

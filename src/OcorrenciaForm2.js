@@ -89,7 +89,7 @@ const OcorrenciaForm2 = ({ addOcorrencia }) => {
 
   // --- Header State ---
   const [username, setUsername] = useState("");
-  const [filialSelecionada, setFilialSelecionada] = useState("140-01"); // Estado para filial/empresa
+  const [filialSelecionada, setFilialSelecionada] = useState(""); // Estado para filial/empresa
   useEffect(() => {
     const storedUser = localStorage.getItem("username") || sessionStorage.getItem("username");
     if (storedUser) setUsername(storedUser);
@@ -166,7 +166,7 @@ const OcorrenciaForm2 = ({ addOcorrencia }) => {
     } else if (name === "notaFiscal") {
       setForm((s) => ({ ...s, notaFiscal: onlyDigits(value).slice(0, 9) }));
     } else if (name === "serie") {
-      setForm((s) => ({ ...s, serie: onlyDigits(value).slice(0, 3) }));
+      setForm((s) => ({ ...s, serie: value.slice(0, 3) }));
     } else {
       setForm((s) => ({ ...s, [name]: value }));
     }
@@ -446,6 +446,7 @@ const OcorrenciaForm2 = ({ addOcorrencia }) => {
   };
 
   const handleSubmit = async () => {
+    if (!filialSelecionada) { Swal.fire("Atenção", "Selecione a Empresa / Filial antes de salvar.", "warning"); return; }
     if (!cabecalho?.Z4_CARGA) { Swal.fire("Atenção", "Cabeçalho incompleto (sem Carga).", "warning"); return; }
     if (!form.produtos.length) { Swal.fire("Atenção", "Selecione ao menos um item.", "warning"); return; }
     if (!form.vendedor) { Swal.fire("Atenção", "Selecione um Vendedor.", "warning"); return; }
@@ -473,7 +474,7 @@ const OcorrenciaForm2 = ({ addOcorrencia }) => {
       fornecedorCod: cabecalho?.Z4_CLIENTE || form.clienteCodigo || "",
       descricao: form.descricao || "",
       notaFiscal: form.notaFiscal ? padLeft(form.notaFiscal, 9) : "",
-      serie: form.serie ? padLeft(form.serie, 3) : "",
+      serie: form.serie ? String(form.serie).trim() : "",
       notaOrigem: nfOrigem,
       valorTotal: form.valorTotal,
       status: "PENDENTE",
@@ -490,7 +491,16 @@ const OcorrenciaForm2 = ({ addOcorrencia }) => {
 
     try {
       await axios.post(`${API_BASE_URL}/ocorrencias`, payload);
-      // Opcional: enviar email se necessário (ver OcorrenciaForm.js)
+
+      const remetentesParaEmail = ["FORT FRUIT ETANA", "FORT FRUIT PIEDADE", "FORT FRUIT PETROLINA"];
+      if (remetentesParaEmail.includes(remetenteSelecionado)) {
+        try {
+          await axios.post(`${API_BASE_URL}/api/enviar-email-devolucao`, payload);
+        } catch (emailError) {
+          console.error("Erro ao enviar e-mail:", emailError);
+        }
+      }
+
       Swal.fire("Sucesso", "Ocorrência salva com sucesso!", "success");
       navigate("/ocorrencias");
     } catch (error) {
@@ -531,12 +541,17 @@ const OcorrenciaForm2 = ({ addOcorrencia }) => {
               <select
                 value={filialSelecionada}
                 onChange={(e) => setFilialSelecionada(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold text-lg"
+                className={`w-full px-4 py-3 rounded-xl border bg-slate-50 dark:bg-slate-700/50 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold text-lg ${
+                  !filialSelecionada
+                    ? "border-red-400 text-slate-400 dark:border-red-500"
+                    : "border-slate-300 dark:border-slate-600"
+                }`}
               >
+                <option value="" disabled>Selecione a filial...</option>
                 <option value="140-01">Belém</option>
                 <option value="140-04">Castanhal</option>
                 <option value="140-06">Piedade</option>
-                <option value="010-01">Etana </option>
+                <option value="010-01">Etana</option>
                 <option value="200-01">Petrolina</option>
                 <option value="DEVOLUCAO">Devolução</option>
               </select>

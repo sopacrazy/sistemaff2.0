@@ -24,10 +24,6 @@ const nf2 = new Intl.NumberFormat("pt-BR", {
   maximumFractionDigits: 2,
 });
 const formatDate = (d) => {
-  // MySQL retorna DATE como objeto Date em UTC meia-noite.
-  // Usar toLocaleDateString com timezone America/Sao_Paulo (UTC-3)
-  // converte 30/03 00:00 UTC para 29/03 21:00 BRT = dia errado.
-  // Solução: extrair dia/mês/ano diretamente via UTC.
   if (d instanceof Date && !isNaN(d)) {
     const dd = String(d.getUTCDate()).padStart(2, '0');
     const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
@@ -42,29 +38,47 @@ const formatDate = (d) => {
   return s || '-';
 };
 
+// Formato curto para células da tabela em range (dd/mm/aa)
+const formatDateShort = (d) => {
+  if (d instanceof Date && !isNaN(d)) {
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const yy = String(d.getUTCFullYear()).slice(-2);
+    return `${dd}/${mm}/${yy}`;
+  }
+  const s = String(d).trim();
+  const isoMatch = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1].slice(-2)}`;
+  }
+  return s || '-';
+};
+
 async function gerarRelatorioFaltas(
   dbOcorrencias,
-  { data, local, tipo = "padrao", poolMSSQL = null },
+  { data, dataFim, local, tipo = "padrao", poolMSSQL = null },
   res
 ) {
   const isCompras = String(tipo).toLowerCase() === "compras";
 
-  // Normaliza a data para garantir formato correto (YYYY-MM-DD)
+  // Normaliza as datas (YYYY-MM-DD)
   const dataNormalizada = String(data).trim();
+  const dataFimNorm = dataFim ? String(dataFim).trim() : dataNormalizada;
+  const isRange = dataNormalizada !== dataFimNorm;
 
   // Se for tipo "Compras", verifica se precisa buscar preços que estão NULL
-  // Isso garante que fechamentos antigos também tenham preços preenchidos
-  if (isCompras && poolMSSQL) {
+  // Para range de datas, usa os preços já salvos na base (lookup Protheus apenas para dia único)
+  if (isCompras && poolMSSQL && !isRange) {
     try {
       const sql = require("mssql");
       // Busca produtos com falta mas sem preço
       const [produtosSemPreco] = await dbOcorrencias.promise().query(
-        `SELECT DISTINCT cod_produto 
+        `SELECT DISTINCT cod_produto
            FROM faltas_fechamento
            WHERE DATE(data) = DATE(?) AND local = ?
-             AND (falta IS NOT NULL AND falta <> 0)
+             AND falta > 0
              AND (preco_compra IS NULL OR preco_compra = 0)`,
-        [dataNormalizada, local]
+        [dataNormalizada, local]  // usa dataNormalizada (dia único garantido por !isRange)
       );
 
       if (produtosSemPreco.length > 0) {
@@ -177,10 +191,9 @@ async function gerarRelatorioFaltas(
   } else if (isCompras && !poolMSSQL) {
   }
 
-  // Busca itens (agora incluindo preco_compra)
-  // Usa DATE() para garantir comparação correta mesmo se a coluna for DATETIME
+  // Busca itens usando BETWEEN para suportar range de datas
   const [rows] = await dbOcorrencias.promise().query(
-    `SELECT 
+    `SELECT
          cod_produto AS codigo,
          produto,
          unidade,
@@ -189,46 +202,40 @@ async function gerarRelatorioFaltas(
          falta,
          observacao,
          usuario,
+         data AS data_fechamento,
          criado_em,
          preco_compra
        FROM faltas_fechamento
-       WHERE DATE(data) = DATE(?) AND local = ?
-         AND (falta IS NOT NULL AND falta <> 0)
-       ORDER BY produto`,
-    [dataNormalizada, local]
+       WHERE DATE(data) BETWEEN DATE(?) AND DATE(?) AND local = ?
+         AND falta > 0
+       ORDER BY data, produto`,
+    [dataNormalizada, dataFimNorm, local]
   );
 
-  // Verifica se há dados na tabela para essa data/local (mesmo sem falta)
-  const [totalRows] = await dbOcorrencias
-    .promise()
-    .query(
-      `SELECT COUNT(*) as total FROM faltas_fechamento WHERE DATE(data) = DATE(?) AND local = ?`,
-      [dataNormalizada, local]
-    );
-
-  // Resumo
+  // Resumo (info bar)
   const [resumo] = await dbOcorrencias.promise().query(
-    `SELECT 
+    `SELECT
          local,
-         data,
+         MIN(data) AS data_inicio,
+         MAX(data) AS data_fim,
          COALESCE(MAX(usuario), '-') AS usuario,
          MAX(criado_em) AS fechado_em
        FROM faltas_fechamento
-       WHERE DATE(data) = DATE(?) AND local = ?
-       GROUP BY local, data
+       WHERE DATE(data) BETWEEN DATE(?) AND DATE(?) AND local = ?
        LIMIT 1`,
-    [dataNormalizada, local]
+    [dataNormalizada, dataFimNorm, local]
   );
 
   const info = resumo[0] || {
     local,
-    data,
+    data_inicio: data,
+    data_fim: dataFimNorm,
     usuario: "-",
     fechado_em: null,
   };
 
-  const localDesc = LOC_DESC_MAP[String(info.local)] || String(info.local);
-  const fechadoHora = info.fechado_em
+  const localDesc = LOC_DESC_MAP[String(info.local || local)] || String(info.local || local);
+  const fechadoHora = (!isRange && info.fechado_em)
     ? new Date(info.fechado_em).toLocaleTimeString("pt-BR", {
         timeZone: "America/Sao_Paulo",
       })
@@ -246,11 +253,12 @@ async function gerarRelatorioFaltas(
 
   // PDF setup
   res.setHeader("Content-Type", "application/pdf");
+  const filenameDates = isRange
+    ? `${dataNormalizada}_a_${dataFimNorm}`
+    : dataNormalizada;
   res.setHeader(
     "Content-Disposition",
-    `attachment; filename="folha_faltas_${local}_${data}${
-      isCompras ? "_compras" : ""
-    }.pdf"`
+    `attachment; filename="folha_faltas_${local}_${filenameDates}${isCompras ? "_compras" : ""}.pdf"`
   );
 
   const doc = new PDFDocument({
@@ -273,12 +281,20 @@ async function gerarRelatorioFaltas(
   y += 60;
 
   // Barra de informações
-  y = drawInfoBar(doc, y, [
-    { label: "Local", value: `${localDesc} (${info.local})` },
-    { label: "Data", value: formatDate(info.data) },
-    { label: "Usuário", value: info.usuario },
-    { label: "Fechado às", value: fechadoHora },
-  ]);
+  const infoBarItems = isRange
+    ? [
+        { label: "Local", value: `${localDesc} (${local})` },
+        { label: "De", value: formatDate(dataNormalizada) },
+        { label: "Até", value: formatDate(dataFimNorm) },
+        { label: "Itens c/ falta", value: String(rows.length) },
+      ]
+    : [
+        { label: "Local", value: `${localDesc} (${local})` },
+        { label: "Data", value: formatDate(info.data_inicio || dataNormalizada) },
+        { label: "Usuário", value: info.usuario },
+        { label: "Fechado às", value: fechadoHora },
+      ];
+  y = drawInfoBar(doc, y, infoBarItems);
   y += 15;
 
   // Tabela
@@ -287,24 +303,28 @@ async function gerarRelatorioFaltas(
 
   const cols = isCompras
     ? [
-        { key: "codigo", title: "Código", w: 60, align: "left" },
-        { key: "produto", title: "Produto", w: 220, align: "left" },
-        { key: "unidade", title: "Unid.", w: 40, align: "center" },
-        { key: "falta", title: "Falta", w: 60, align: "right" },
-        { key: "compra", title: "Compra", w: 70, align: "right" },
-        { key: "total", title: "Total", w: 70, align: "right" },
+        ...(isRange ? [{ key: "data_fechamento", title: "Data", w: 50, align: "left" }] : []),
+        { key: "codigo", title: "Código", w: isRange ? 55 : 60, align: "left" },
+        { key: "produto", title: "Produto", w: isRange ? 195 : 220, align: "left" },
+        { key: "unidade", title: "Unid.", w: isRange ? 38 : 40, align: "center" },
+        { key: "falta", title: "Falta", w: isRange ? 55 : 60, align: "right" },
+        { key: "compra", title: "Compra", w: isRange ? 60 : 70, align: "right" },
+        { key: "total", title: "Total", w: isRange ? 70 : 70, align: "right" },
       ]
     : [
-        { key: "codigo", title: "Código", w: 50, align: "left" },
-        { key: "produto", title: "Produto", w: 180, align: "left" },
-        { key: "unidade", title: "Unid.", w: 40, align: "center" },
-        { key: "saldo", title: "Saldo", w: 50, align: "right" },
-        { key: "fisico", title: "Físico", w: 50, align: "right" },
-        { key: "falta", title: "Falta", w: 50, align: "right" },
+        ...(isRange ? [{ key: "data_fechamento", title: "Data", w: 50, align: "left" }] : []),
+        { key: "codigo", title: "Código", w: isRange ? 46 : 50, align: "left" },
+        { key: "produto", title: "Produto", w: isRange ? 168 : 180, align: "left" },
+        { key: "unidade", title: "Unid.", w: isRange ? 36 : 40, align: "center" },
+        { key: "saldo", title: "Saldo", w: isRange ? 46 : 50, align: "right" },
+        { key: "fisico", title: "Físico", w: isRange ? 46 : 50, align: "right" },
+        { key: "falta", title: "Falta", w: isRange ? 46 : 50, align: "right" },
         {
           key: "observacao",
           title: "Observação",
-          w: tableW - (50 + 180 + 40 + 50 + 50 + 50),
+          w: isRange
+            ? tableW - (50 + 46 + 168 + 36 + 46 + 46 + 46)
+            : tableW - (50 + 180 + 40 + 50 + 50 + 50),
           align: "left",
         },
       ];
@@ -372,12 +392,7 @@ async function gerarRelatorioFaltas(
       doc.addPage();
       y = 36;
 
-      y = drawInfoBar(doc, y, [
-        { label: "Local", value: `${localDesc} (${info.local})` },
-        { label: "Data", value: formatDate(info.data) },
-        { label: "Usuário", value: info.usuario },
-        { label: "Fechado às", value: fechadoHora },
-      ]);
+      y = drawInfoBar(doc, y, infoBarItems);
       y += 15;
 
       drawHeaderRow(doc, tableX, y, tableW, cols);
@@ -393,61 +408,52 @@ async function gerarRelatorioFaltas(
         .restore();
     }
 
-    // 4) desenhar células
+    // 4) desenhar células (cols array já contém a coluna "Data" quando isRange)
     let x = tableX;
+    let ci = 0; // índice da coluna corrente
 
     if (isCompras) {
       const preco = r.preco_compra != null ? Number(r.preco_compra) : null;
       const falta = Number(r.falta || 0);
       const totalLinha = preco != null ? preco * falta : null;
 
-      drawCell(doc, r.codigo, x, y, cols[0].w, "left");
-      x += cols[0].w;
-      drawCell(doc, r.produto, x, y, cols[1].w, "left");
-      x += cols[1].w;
-      drawCell(doc, r.unidade, x, y, cols[2].w, "center");
-      x += cols[2].w;
-      drawCell(doc, nf2.format(falta), x, y, cols[3].w, "right");
-      x += cols[3].w;
-
-      drawCell(
-        doc,
-        preco != null ? nf2.format(preco) : "-",
-        x,
-        y,
-        cols[4].w,
-        "right"
-      );
-      x += cols[4].w;
-
+      if (isRange) {
+        drawCell(doc, formatDateShort(r.data_fechamento), x, y, cols[ci].w, "left");
+        x += cols[ci].w; ci++;
+      }
+      drawCell(doc, r.codigo, x, y, cols[ci].w, "left");
+      x += cols[ci].w; ci++;
+      drawCell(doc, r.produto, x, y, cols[ci].w, "left");
+      x += cols[ci].w; ci++;
+      drawCell(doc, r.unidade, x, y, cols[ci].w, "center");
+      x += cols[ci].w; ci++;
+      drawCell(doc, nf2.format(falta), x, y, cols[ci].w, "right");
+      x += cols[ci].w; ci++;
+      drawCell(doc, preco != null ? nf2.format(preco) : "-", x, y, cols[ci].w, "right");
+      x += cols[ci].w; ci++;
       doc.font("Helvetica-Bold");
-      drawCell(
-        doc,
-        totalLinha != null ? nf2.format(totalLinha) : "-",
-        x,
-        y,
-        cols[5].w,
-        "right"
-      );
+      drawCell(doc, totalLinha != null ? nf2.format(totalLinha) : "-", x, y, cols[ci].w, "right");
       doc.font("Helvetica");
     } else {
-      drawCell(doc, r.codigo, x, y, cols[0].w, "left");
-      x += cols[0].w;
-      drawCell(doc, r.produto, x, y, cols[1].w, "left");
-      x += cols[1].w;
-      drawCell(doc, r.unidade, x, y, cols[2].w, "center");
-      x += cols[2].w;
-      drawCell(doc, nf2.format(r.saldo), x, y, cols[3].w, "right");
-      x += cols[3].w;
-      drawCell(doc, nf2.format(r.fisico), x, y, cols[4].w, "right");
-      x += cols[4].w;
-
+      if (isRange) {
+        drawCell(doc, formatDateShort(r.data_fechamento), x, y, cols[ci].w, "left");
+        x += cols[ci].w; ci++;
+      }
+      drawCell(doc, r.codigo, x, y, cols[ci].w, "left");
+      x += cols[ci].w; ci++;
+      drawCell(doc, r.produto, x, y, cols[ci].w, "left");
+      x += cols[ci].w; ci++;
+      drawCell(doc, r.unidade, x, y, cols[ci].w, "center");
+      x += cols[ci].w; ci++;
+      drawCell(doc, nf2.format(r.saldo), x, y, cols[ci].w, "right");
+      x += cols[ci].w; ci++;
+      drawCell(doc, nf2.format(r.fisico), x, y, cols[ci].w, "right");
+      x += cols[ci].w; ci++;
       doc.font("Helvetica-Bold");
-      drawCell(doc, nf2.format(r.falta), x, y, cols[5].w, "right");
+      drawCell(doc, nf2.format(r.falta), x, y, cols[ci].w, "right");
       doc.font("Helvetica");
-      x += cols[5].w;
-
-      drawCell(doc, r.observacao || "", x, y, cols[6].w, "left");
+      x += cols[ci].w; ci++;
+      drawCell(doc, r.observacao || "", x, y, cols[ci].w, "left");
     }
 
     // 5) avança Y pela altura real

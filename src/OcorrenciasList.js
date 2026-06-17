@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import dayjs from "dayjs";
@@ -42,6 +42,73 @@ const Modal = ({ isOpen, onClose, title, children, maxWidth = "max-w-sm", zIndex
   );
 };
 
+const getTimelineItems = (ocorrencia) => {
+  if (!ocorrencia) return [];
+  const items = [];
+
+  if (ocorrencia.data) {
+    items.push({
+      label: "Data do Pedido",
+      dateVal: dayjs(ocorrencia.data).add(12, "hour"),
+      icon: "shopping_cart",
+      colorClass: "bg-blue-500 text-white dark:bg-blue-600",
+      bgClass: "bg-blue-50/50 dark:bg-blue-900/10 border-blue-100 dark:border-blue-900/30 text-blue-800 dark:text-blue-200",
+      description: "Data em que o pedido foi emitido e faturado originalmente."
+    });
+  }
+
+  if (ocorrencia.created_at) {
+    items.push({
+      label: "Inclusão da Ocorrência",
+      dateVal: dayjs(ocorrencia.created_at),
+      icon: "add_task",
+      colorClass: "bg-amber-500 text-white dark:bg-amber-600",
+      bgClass: "bg-amber-50/50 dark:bg-amber-900/10 border-amber-100 dark:border-amber-900/30 text-amber-800 dark:text-amber-200",
+      description: "Data em que a ocorrência foi registrada no sistema."
+    });
+  }
+
+  if (ocorrencia.protheus_devolucao_emissao) {
+    items.push({
+      label: "Data Devolução ERP",
+      dateVal: dayjs(ocorrencia.protheus_devolucao_emissao).add(12, "hour"),
+      icon: "swap_horiz",
+      colorClass: "bg-purple-500 text-white dark:bg-purple-600",
+      bgClass: "bg-purple-50/50 dark:bg-purple-900/10 border-purple-100 dark:border-purple-900/30 text-purple-800 dark:text-purple-200",
+      description: "Data em que a nota de devolução foi lançada no Protheus."
+    });
+  }
+
+  if (
+    (ocorrencia.status === "RESOLVIDO" || 
+     ocorrencia.status === "CONCLUIDO" || 
+     ocorrencia.status === "CONCLUIDA") && 
+    ocorrencia.updated_at
+  ) {
+    items.push({
+      label: "Data Conclusão",
+      dateVal: dayjs(ocorrencia.updated_at),
+      icon: "check_circle",
+      colorClass: "bg-green-500 text-white dark:bg-green-600",
+      bgClass: "bg-green-50/50 dark:bg-green-900/10 border-green-100 dark:border-green-900/30 text-green-800 dark:text-green-200",
+      description: "Data em que a ocorrência foi finalizada e resolvida no sistema."
+    });
+  }
+
+  const orderMap = {
+    "Data do Pedido": 1,
+    "Inclusão da Ocorrência": 2,
+    "Data Devolução ERP": 3,
+    "Conclusão da Ocorrência": 4
+  };
+
+  return items.sort((a, b) => {
+    const diff = a.dateVal.valueOf() - b.dateVal.valueOf();
+    if (diff !== 0) return diff;
+    return orderMap[a.label] - orderMap[b.label];
+  });
+};
+
 const OcorrenciasList = () => {
   const navigate = useNavigate();
 
@@ -55,6 +122,8 @@ const OcorrenciasList = () => {
   const [ocorrencias, setOcorrencias] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState("");
+  const fetchRequestId = useRef(0);
   const [filterStatus, setFilterStatus] = useState("TODOS"); // Novo Estado de Filtro
   const [showOverdueOnly, setShowOverdueOnly] = useState(false);
   const [overdueCount, setOverdueCount] = useState(0); // Contador total de atrasados
@@ -66,6 +135,8 @@ const OcorrenciasList = () => {
   // --- VIEW STATE ---
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [viewingOcorrencia, setViewingOcorrencia] = useState(null);
+  const [isTimelineModalOpen, setIsTimelineModalOpen] = useState(false);
+  const [loadingProtheus, setLoadingProtheus] = useState(false);
   const [hasRestricaoEtana, setHasRestricaoEtana] = useState(false);
 
   // --- LOGS STATE ---
@@ -125,8 +196,6 @@ const OcorrenciasList = () => {
     setLocal(storedLocal);
 
     fetchPermissions();
-    fetchOcorrencias();
-    fetchOverdueCount();
   }, []);
 
   // Função para buscar o total de ocorrências atrasadas
@@ -143,13 +212,24 @@ const OcorrenciasList = () => {
     }
   };
 
+  // Debounce search term
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 400);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [searchTerm]);
+
   // Atualiza busca quando muda página, pesquisa ou filtro
   useEffect(() => {
     setCurrentPage(1); // Reset para primeira página quando pesquisa/filtro muda
-  }, [searchTerm, filterStatus, showOverdueOnly]);
+  }, [debouncedSearchTerm, filterStatus, showOverdueOnly]);
 
   useEffect(() => {
-    fetchOcorrencias(currentPage);
+    fetchOcorrencias(currentPage, debouncedSearchTerm);
     // Atualiza o contador de atrasados quando muda página, pesquisa ou filtro
     // (mas só se não estiver filtrando por status específico, para não fazer chamadas desnecessárias)
     if (
@@ -160,9 +240,10 @@ const OcorrenciasList = () => {
     ) {
       fetchOverdueCount();
     }
-  }, [currentPage, searchTerm, filterStatus, showOverdueOnly]);
+  }, [currentPage, debouncedSearchTerm, filterStatus, showOverdueOnly]);
 
-  const fetchOcorrencias = async (page = 1) => {
+  const fetchOcorrencias = async (page = 1, currentSearch = debouncedSearchTerm) => {
+    const requestId = ++fetchRequestId.current;
     try {
       setLoading(true);
       // Passando parâmetros de paginação, pesquisa e status para o backend
@@ -170,17 +251,34 @@ const OcorrenciasList = () => {
         params: {
           page,
           limit: 20,
-          search: searchTerm.trim(),
+          search: currentSearch.trim(),
           status: filterStatus !== "TODOS" ? filterStatus : "",
           showOverdueOnly: showOverdueOnly ? "true" : "false", // Novo parâmetro para filtrar apenas atrasados
         },
       });
 
+      // Descarte de requisições obsoletas (race conditions)
+      if (requestId !== fetchRequestId.current) return;
+
       let data = response.data;
-      // O backend retorna { ocorrencias: [...], totalPages: N }
+      // O backend retorna { ocorrencias: [...], totalPages: N, autoResolvidos: N }
       if (data.ocorrencias && Array.isArray(data.ocorrencias)) {
         setOcorrencias(data.ocorrencias);
         setTotalPages(data.totalPages || 1);
+
+        // Notifica quando ocorrências foram resolvidas automaticamente
+        if (data.autoResolvidos > 0) {
+          Swal.fire({
+            toast: true,
+            position: 'top-end',
+            icon: 'success',
+            title: `✅ ${data.autoResolvidos} ocorrência(s) resolvida(s) automaticamente`,
+            html: `<span style="font-size:13px">Devolução encontrada no Protheus com valores válidos</span>`,
+            showConfirmButton: false,
+            timer: 6000,
+            timerProgressBar: true,
+          });
+        }
       } else if (Array.isArray(data)) {
         // Fallback se o backend retornar array direto
         setOcorrencias(data);
@@ -190,6 +288,7 @@ const OcorrenciasList = () => {
       }
     } catch (error) {
       console.error("Erro ao buscar ocorrências:", error);
+      if (requestId !== fetchRequestId.current) return;
       const saved = localStorage.getItem("ocorrencias");
       if (saved) {
         try {
@@ -200,7 +299,9 @@ const OcorrenciasList = () => {
         }
       }
     } finally {
-      setLoading(false);
+      if (requestId === fetchRequestId.current) {
+        setLoading(false);
+      }
     }
   };
 
@@ -468,7 +569,7 @@ const OcorrenciasList = () => {
         status: fullData.status || "PENDENTE",
         dataTratativa: fullData.dataTratativa
           ? fullData.dataTratativa.split("T")[0]
-          : "",
+          : new Date().toISOString().split("T")[0],
         notaFiscal: fullData.nota_fiscal || fullData.notaFiscal || "",
         nota_fiscal: fullData.nota_fiscal || fullData.notaFiscal || "",
         serie: fullData.serie || "",
@@ -569,12 +670,18 @@ const OcorrenciasList = () => {
       setViewingOcorrencia(ocr);
       setIsViewModalOpen(true);
 
+      if (ocr.notaOrigem || ocr.nota_origem) {
+        setLoadingProtheus(true);
+      }
+
       // Busca os detalhes completos (incluindo produtos)
       const response = await axios.get(`${API_BASE_URL}/ocorrencias/${ocr.id}`);
       setViewingOcorrencia(response.data);
     } catch (error) {
       console.error("Erro ao buscar detalhes da ocorrência:", error);
       // Se falhar, mantém os dados que já tinha (melhor que nada)
+    } finally {
+      setLoadingProtheus(false);
     }
   };
 
@@ -633,10 +740,7 @@ const OcorrenciasList = () => {
         return acc + (qtd * val);
       }, 0);
 
-      // Se for do app, usa remetente padrão "FORT FRUIT BELEM"
-      const remetenteFinal = editFormData.adicionado_pelo_app === "S"
-        ? "FORT FRUIT BELEM"
-        : (editFormData.remetente || "");
+      const remetenteFinal = editFormData.remetente || "FORT FRUIT BELEM";
 
       const dadosParaSalvar = {
         ...editFormData,
@@ -655,6 +759,15 @@ const OcorrenciasList = () => {
         `${API_BASE_URL}/ocorrencias/${editingOcorrencia.id}`,
         dadosParaSalvar
       );
+
+      const remetentesParaEmail = ["FORT FRUIT ETANA", "FORT FRUIT PIEDADE", "FORT FRUIT PETROLINA"];
+      if (remetentesParaEmail.includes(remetenteFinal)) {
+        try {
+          await axios.post(`${API_BASE_URL}/api/enviar-email-devolucao`, dadosParaSalvar);
+        } catch (emailError) {
+          console.error("Erro ao enviar e-mail:", emailError);
+        }
+      }
 
       // Fecha o modal primeiro
       setIsEditModalOpen(false);
@@ -725,6 +838,69 @@ const OcorrenciasList = () => {
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
     return diffDays > 7;
+  };
+
+  const getMergedStatus = (ocr) => {
+    // 1. RESOLVIDO / CONCLUIDO / CONCLUIDA
+    if (ocr.status === "RESOLVIDO" || ocr.status === "CONCLUIDO" || ocr.status === "CONCLUIDA") {
+      return {
+        text: "RESOLVIDO",
+        className: "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800"
+      };
+    }
+
+    // 2. DIVERGÊNCIA check (only if not resolved, and we have Protheus match)
+    const hasOrigem = ocr.nota_origem || ocr.notaOrigem;
+    if (hasOrigem && ocr.protheus_devolucao_ok) {
+      const valOcr = parseFloat(ocr.valor || 0);
+      const valProt = parseFloat(ocr.protheus_devolucao_total || 0);
+      const diffValor = Math.abs(valOcr - valProt);
+      const hasDivergenceValor = diffValor >= 0.01;
+
+      const cleanOcrSerie = String(ocr.serie || "").trim().replace(/^0+/, "");
+      const cleanProtSerie = String(ocr.protheus_devolucao_serie || "").trim().replace(/^0+/, "");
+      const isOcrSerieEmpty = !cleanOcrSerie || cleanOcrSerie === "-";
+      const hasDivergenceSerie = isOcrSerieEmpty ? false : (cleanOcrSerie !== cleanProtSerie);
+
+      const cleanOcrNota = String(ocr.nota_fiscal || ocr.notaFiscal || "").trim().replace(/^0+/, "");
+      const cleanProtDoc = String(ocr.protheus_devolucao_doc || "").trim().replace(/^0+/, "");
+      const isOcrNotaEmpty = !cleanOcrNota || cleanOcrNota === "-";
+      const hasDivergenceNota = isOcrNotaEmpty ? false : (cleanOcrNota !== cleanProtDoc);
+
+      if (hasDivergenceValor || hasDivergenceSerie || hasDivergenceNota) {
+        return {
+          text: "DIVERGÊNCIA",
+          className: "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800"
+        };
+      } else {
+        return {
+          text: "RESOLVIDO",
+          className: "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800"
+        };
+      }
+    }
+
+    // 3. PEND. APP
+    if (ocr.status === "PENDENTE" && ocr.adicionado_pelo_app === "S") {
+      return {
+        text: "PEND. APP",
+        className: "bg-yellow-100 text-yellow-700 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400 dark:border-yellow-800"
+      };
+    }
+
+    // 4. PENDENTE
+    if (ocr.status === "PENDENTE") {
+      return {
+        text: "PENDENTE",
+        className: "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800"
+      };
+    }
+
+    // Default Fallback (e.g. INFORMATIVO)
+    return {
+      text: ocr.status || "PENDENTE",
+      className: "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700"
+    };
   };
 
   const safeOcorrencias = Array.isArray(ocorrencias) ? ocorrencias : [];
@@ -817,6 +993,7 @@ const OcorrenciasList = () => {
           </div>
         )}
       </Modal>
+
 
       {/* Modal de Edição (MODERNO E COMPLETO) */}
       <Modal
@@ -953,6 +1130,26 @@ const OcorrenciasList = () => {
                 }
                 className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 focus:ring-2 focus:ring-green-500 outline-none dark:text-white"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                Remetente
+                {["FORT FRUIT ETANA", "FORT FRUIT PIEDADE", "FORT FRUIT PETROLINA"].includes(editFormData.remetente) && (
+                  <span className="ml-2 text-xs font-normal text-blue-600 dark:text-blue-400">✉ Email será enviado</span>
+                )}
+              </label>
+              <select
+                value={editFormData.remetente || ""}
+                onChange={(e) => setEditFormData({ ...editFormData, remetente: e.target.value })}
+                className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 focus:ring-2 focus:ring-green-500 outline-none dark:text-white"
+              >
+                <option value="">Selecione...</option>
+                <option value="FORT FRUIT BELEM">FORT FRUIT BELEM</option>
+                <option value="FORT FRUIT CASTANHAL">FORT FRUIT CASTANHAL</option>
+                <option value="FORT FRUIT ETANA">FORT FRUIT ETANA</option>
+                <option value="FORT FRUIT PIEDADE">FORT FRUIT PIEDADE</option>
+                <option value="FORT FRUIT PETROLINA">FORT FRUIT PETROLINA</option>
+              </select>
             </div>
           </div>
 
@@ -1334,28 +1531,6 @@ const OcorrenciasList = () => {
                 </div>
               </div>
               <div className="flex items-center gap-4">
-                <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-right">
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase leading-none">Data do Pedido</p>
-                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                      {viewingOcorrencia.data ? dayjs(viewingOcorrencia.data).add(12, "hour").format("DD/MM/YYYY") : "N/A"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase leading-none">Data Inclusão</p>
-                    <p className="text-sm font-semibold text-slate-600 dark:text-slate-400">
-                      {viewingOcorrencia.created_at ? dayjs(viewingOcorrencia.created_at).format("DD/MM/YYYY") : "N/A"}
-                    </p>
-                  </div>
-                  {(viewingOcorrencia.status === "RESOLVIDO" || viewingOcorrencia.status === "CONCLUIDO" || viewingOcorrencia.status === "CONCLUIDA") && (
-                    <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase leading-none">Data Conclusão</p>
-                      <p className="text-sm font-bold text-green-600 dark:text-green-400">
-                        {viewingOcorrencia.updated_at ? dayjs(viewingOcorrencia.updated_at).format("DD/MM/YYYY") : "N/A"}
-                      </p>
-                    </div>
-                  )}
-                </div>
                 <span
                   className={`px-4 py-2 rounded-xl text-sm font-bold border ${viewingOcorrencia.status === "RESOLVIDO" ||
                     viewingOcorrencia.status === "CONCLUIDO"
@@ -1373,6 +1548,102 @@ const OcorrenciasList = () => {
                 </span>
               </div>
             </div>
+
+            {/* Linha do Tempo Horizontal */}
+            {(() => {
+              const isResolved = viewingOcorrencia.status === "RESOLVIDO" || 
+                                 viewingOcorrencia.status === "CONCLUIDO" || 
+                                 viewingOcorrencia.status === "CONCLUIDA";
+              
+              const steps = [
+                {
+                  label: "Pedido",
+                  date: viewingOcorrencia.data ? dayjs(viewingOcorrencia.data).add(12, "hour").format("DD/MM/YYYY") : null,
+                  icon: "shopping_cart",
+                  active: true,
+                  color: "bg-green-500 dark:bg-green-600 text-white",
+                  borderColor: "border-green-500"
+                },
+                {
+                  label: "Inclusão",
+                  date: viewingOcorrencia.created_at ? dayjs(viewingOcorrencia.created_at).format("DD/MM/YYYY") : null,
+                  icon: "add_task",
+                  active: true,
+                  color: "bg-green-500 dark:bg-green-600 text-white",
+                  borderColor: "border-green-500"
+                },
+                {
+                  label: "Devolução ERP",
+                  date: viewingOcorrencia.protheus_devolucao_emissao ? dayjs(viewingOcorrencia.protheus_devolucao_emissao).format("DD/MM/YYYY") : null,
+                  icon: "swap_horiz",
+                  active: !!viewingOcorrencia.protheus_devolucao_ok,
+                  color: viewingOcorrencia.protheus_devolucao_ok 
+                    ? "bg-green-500 dark:bg-green-600 text-white" 
+                    : "bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500",
+                  borderColor: viewingOcorrencia.protheus_devolucao_ok ? "border-green-500" : "border-slate-200 dark:border-slate-700"
+                },
+                {
+                  label: "Conclusão",
+                  date: isResolved && viewingOcorrencia.updated_at
+                    ? dayjs(viewingOcorrencia.updated_at).format("DD/MM/YYYY")
+                    : null,
+                  icon: "check_circle",
+                  active: isResolved,
+                  color: isResolved
+                    ? "bg-green-500 dark:bg-green-600 text-white"
+                    : "bg-slate-200 dark:bg-slate-700 text-slate-400 dark:text-slate-500",
+                  borderColor: isResolved
+                    ? "border-green-500"
+                    : "border-slate-200 dark:border-slate-700"
+                }
+              ];
+
+              // Calcular progresso da linha verde
+              let activeStepsCount = steps.filter(s => s.active).length;
+              let progressPercent = 0;
+              if (activeStepsCount === 2) progressPercent = 33.3;
+              else if (activeStepsCount === 3) progressPercent = 66.6;
+              else if (activeStepsCount === 4) progressPercent = 100;
+
+              return (
+                <div className="w-full py-4 px-8 bg-slate-50 dark:bg-slate-700/10 rounded-2xl border border-slate-100 dark:border-slate-700 flex flex-col items-center">
+                  <div className="w-full flex items-center justify-between relative max-w-2xl my-2">
+                    {/* Linha de progresso cinza ao fundo */}
+                    <div className="absolute top-1/2 left-0 right-0 h-1 bg-slate-200 dark:bg-slate-700 -translate-y-1/2 z-0 rounded-full"></div>
+                    
+                    {/* Linha de progresso ativa verde */}
+                    <div 
+                      className="absolute top-1/2 left-0 h-1 bg-green-500 dark:bg-green-600 -translate-y-1/2 z-0 rounded-full transition-all duration-500 ease-out"
+                      style={{ width: `${progressPercent}%` }}
+                    ></div>
+
+                    {steps.map((step, idx) => (
+                      <div key={idx} className="flex flex-col items-center z-10 relative">
+                        {/* Círculo do Ícone */}
+                        <div 
+                          className={`w-10 h-10 rounded-full flex items-center justify-center border-4 border-slate-50 dark:border-slate-800 shadow-sm transition-all duration-300 ${step.color}`}
+                          title={step.label}
+                        >
+                          <span className="material-symbols-rounded text-lg">{step.icon}</span>
+                        </div>
+                        
+                        {/* Textos */}
+                        <div className="absolute top-12 flex flex-col items-center min-w-[120px] text-center">
+                          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                            {step.label}
+                          </span>
+                          <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold mt-0.5">
+                            {step.date || "--/--/----"}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Espaço extra na parte inferior para os textos absolutos posicionados acima */}
+                  <div className="h-10"></div>
+                </div>
+              );
+            })()}
 
             {/* Grid Detail Fields */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1455,6 +1726,8 @@ const OcorrenciasList = () => {
                         : "-"}
                     </span>
                   </div>
+
+
                 </div>
               </div>
 
@@ -1494,6 +1767,114 @@ const OcorrenciasList = () => {
                 </div>
               </div>
             </div>
+
+            {/* Status de Devolução no Protheus */}
+            {!(viewingOcorrencia.notaOrigem || viewingOcorrencia.nota_origem) ? (
+              <div className="w-full p-4 bg-slate-50 dark:bg-slate-700/30 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center gap-2.5">
+                <span className="material-symbols-rounded text-slate-500 text-xl flex-shrink-0">help</span>
+                <div className="text-xs text-slate-600 dark:text-slate-400">
+                  <p className="font-bold">Sem Nota de Origem</p>
+                  <p className="opacity-95 mt-0.5 leading-relaxed">Preencha a nota de origem para verificar a devolução</p>
+                </div>
+              </div>
+            ) : loadingProtheus ? (
+              <div className="w-full p-4 bg-blue-50/50 dark:bg-blue-950/10 border border-blue-100 dark:border-blue-900 rounded-xl flex items-center gap-2.5 animate-pulse">
+                <span className="relative flex h-3.5 w-3.5 flex-shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-blue-500"></span>
+                </span>
+                <div className="text-xs text-blue-800 dark:text-blue-300">
+                  <p className="font-bold">Consultando Protheus...</p>
+                  <p className="opacity-75 mt-0.5 leading-relaxed">Buscando status de devolução no ERP</p>
+                </div>
+              </div>
+            ) : viewingOcorrencia.protheus_devolucao_ok ? (
+              (() => {
+                const valOcr = parseFloat(viewingOcorrencia.valor || 0);
+                const valProt = parseFloat(viewingOcorrencia.protheus_devolucao_total || 0);
+                const diffValor = Math.abs(valOcr - valProt);
+                const hasDivergenceValor = diffValor >= 0.01;
+
+                const cleanOcrSerie = String(viewingOcorrencia.serie || "").trim().replace(/^0+/, "");
+                const cleanProtSerie = String(viewingOcorrencia.protheus_devolucao_serie || "").trim().replace(/^0+/, "");
+                const isOcrSerieEmpty = !cleanOcrSerie || cleanOcrSerie === "-";
+                const hasDivergenceSerie = isOcrSerieEmpty ? false : (cleanOcrSerie !== cleanProtSerie);
+
+                if (hasDivergenceValor || hasDivergenceSerie) {
+                  return (
+                    <div className="w-full p-4 bg-amber-50 dark:bg-amber-950/20 border border-amber-300 dark:border-amber-800 rounded-xl flex items-start gap-2.5">
+                      <span className="material-symbols-rounded text-amber-600 dark:text-amber-400 text-xl flex-shrink-0 mt-0.5">warning</span>
+                      <div className="text-xs text-amber-800 dark:text-amber-300 w-full">
+                        <p className="font-bold">Devolução no Protheus com divergências</p>
+                        <div className="opacity-90 mt-1 leading-relaxed space-y-1">
+                          <p>
+                            NF: <strong className="font-semibold">{viewingOcorrencia.protheus_devolucao_doc}</strong>
+                          </p>
+                          <p>
+                            Digitação: {viewingOcorrencia.protheus_devolucao_emissao ? dayjs(viewingOcorrencia.protheus_devolucao_emissao).format("DD/MM/YYYY") : "N/A"}
+                          </p>
+                          
+                          <div className="mt-1.5 pt-1.5 border-t border-amber-200/50 dark:border-amber-800/50 space-y-1 max-w-md">
+                            {hasDivergenceValor && (
+                              <div className="flex flex-col gap-0.5">
+                                <div className="flex justify-between">
+                                  <span>Valor Protheus:</span>
+                                  <strong>R$ {valProt.toFixed(2).replace(".", ",")}</strong>
+                                </div>
+                                <div className="flex justify-between opacity-80">
+                                  <span>Valor Ocorrência:</span>
+                                  <span>R$ {valOcr.toFixed(2).replace(".", ",")}</span>
+                                </div>
+                              </div>
+                            )}
+                            {hasDivergenceSerie && (
+                              <div className="flex flex-col gap-0.5">
+                                <div className="flex justify-between">
+                                  <span>Série Protheus:</span>
+                                  <strong>{viewingOcorrencia.protheus_devolucao_serie || "-"}</strong>
+                                </div>
+                                <div className="flex justify-between opacity-80">
+                                  <span>Série Ocorrência:</span>
+                                  <span>{viewingOcorrencia.serie || "-"}</span>
+                                </div>
+                              </div>
+                            )}
+                            {hasDivergenceValor && (
+                              <p className="text-[10px] text-amber-600 dark:text-amber-400 font-medium text-right mt-1 bg-amber-100/50 dark:bg-amber-900/30 px-2 py-0.5 rounded">
+                                Diferença de R$ {diffValor.toFixed(2).replace(".", ",")}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Sem divergências
+                return (
+                  <div className="w-full p-4 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-xl flex items-center gap-2.5">
+                    <span className="material-symbols-rounded text-green-600 dark:text-green-400 text-xl flex-shrink-0">check_circle</span>
+                    <div className="text-xs text-green-800 dark:text-green-300">
+                      <p className="font-bold">Devolução confirmada no Protheus</p>
+                      <p className="opacity-90 mt-0.5 leading-relaxed">
+                        NF: <strong className="font-semibold">{viewingOcorrencia.protheus_devolucao_doc}</strong> (Sér: {viewingOcorrencia.protheus_devolucao_serie})<br />
+                        Digitação: {viewingOcorrencia.protheus_devolucao_emissao ? dayjs(viewingOcorrencia.protheus_devolucao_emissao).format("DD/MM/YYYY") : "N/A"}<br />
+                        Valor: R$ {viewingOcorrencia.protheus_devolucao_total ? parseFloat(viewingOcorrencia.protheus_devolucao_total).toFixed(2).replace(".", ",") : "0,00"}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()
+            ) : (
+              <div className="w-full p-4 bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-800 rounded-xl flex items-center gap-2.5">
+                <span className="material-symbols-rounded text-red-600 dark:text-red-400 text-xl flex-shrink-0">cancel</span>
+                <div className="text-xs text-red-800 dark:text-red-300">
+                  <p className="font-bold">Devolução não encontrada no Protheus</p>
+                  <p className="opacity-95 mt-0.5 leading-relaxed">Aguardando entrada da devolução no ERP</p>
+                </div>
+              </div>
+            )}
 
             {/* Descrição em Destaque */}
             <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-xl border border-amber-100 dark:border-amber-900/30">
@@ -1646,8 +2027,8 @@ const OcorrenciasList = () => {
                 <option value="TODOS">Todos</option>
                 <option value="PENDENTE">Pendentes</option>
                 <option value="PENDENTE_APP">Pendentes App</option>
+                <option value="DIVERGENCIA">Divergências</option>
                 <option value="RESOLVIDO">Resolvidos</option>
-                <option value="CONCLUIDO">Concluídos</option>
               </select>
               <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400">
                 <span className="material-symbols-rounded">filter_list</span>
@@ -1656,23 +2037,22 @@ const OcorrenciasList = () => {
           </div>
 
           {!hasRestricaoEtana && (
-            <button
-              onClick={() => navigate("/cadastrar")}
-              className="w-full md:w-auto px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-green-600/20 flex items-center justify-center gap-2"
-            >
-              <span className="material-symbols-rounded">add</span>
-              Nova Ocorrência
-            </button>
-          )}
-
-          {!hasRestricaoEtana && (
-            <button
-              onClick={() => navigate("/cadastrar2")}
-              className="w-full md:w-auto px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
-            >
-              <span className="material-symbols-rounded">autorenew</span>
-              Automática
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => navigate("/cadastrar")}
+                className="flex items-center gap-2 px-5 py-2.5 bg-green-600 hover:bg-green-700 active:scale-95 text-white rounded-xl font-semibold text-sm transition-all shadow-md shadow-green-600/25"
+              >
+                <span className="material-symbols-rounded text-[18px]">add_circle</span>
+                Nova Ocorrência
+              </button>
+              <button
+                onClick={() => navigate("/cadastrar2")}
+                className="flex items-center gap-2 px-5 py-2.5 bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 dark:hover:bg-slate-500 active:scale-95 text-white rounded-xl font-semibold text-sm transition-all shadow-md shadow-slate-700/25"
+              >
+                <span className="material-symbols-rounded text-[18px]">auto_awesome</span>
+                Automática
+              </button>
+            </div>
           )}
         </div>
 
@@ -1810,21 +2190,16 @@ const OcorrenciasList = () => {
                           : "-"}
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${ocr.status === "RESOLVIDO" ||
-                            ocr.status === "CONCLUIDO"
-                            ? "bg-green-100 text-green-700 border-green-200"
-                            : ocr.status === "PENDENTE" && ocr.adicionado_pelo_app === "S"
-                              ? "bg-yellow-100 text-yellow-700 border-yellow-200"
-                              : ocr.status === "PENDENTE"
-                                ? "bg-red-100 text-red-700 border-red-200"
-                                : "bg-slate-100 text-slate-700 border-slate-200"
-                            }`}
-                        >
-                          {ocr.status === "PENDENTE" && ocr.adicionado_pelo_app === "S"
-                            ? "PEND. APP"
-                            : ocr.status || "PENDENTE"}
-                        </span>
+                        {(() => {
+                          const statusInfo = getMergedStatus(ocr);
+                          return (
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusInfo.className}`}
+                            >
+                              {statusInfo.text}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2 opacity-100 sm:opacity-0 group-hover:opacity-100 transition-opacity">

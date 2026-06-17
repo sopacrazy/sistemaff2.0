@@ -38,7 +38,7 @@ async function gerarRelatorioFaltas(dbOcorrencias, { data, local }, res) {
          criado_em
        FROM faltas_fechamento
        WHERE data = ? AND local = ?
-         AND (falta IS NOT NULL AND falta <> 0)
+         AND falta > 0
        ORDER BY produto`,
     [data, local]
   );

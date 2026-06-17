@@ -117,6 +117,9 @@ const AdjustmentModal = ({ isOpen, onClose, rota, onSave, onOpenImage }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  const [showAddParada, setShowAddParada] = useState(false);
+  const [newParada, setNewParada] = useState({ local: '', hora_inicio: '', hora_fim: '' });
+  const [isAddingParada, setIsAddingParada] = useState(false);
 
   const fetchFullData = useCallback(async () => {
     if (!rota) return;
@@ -125,7 +128,7 @@ const AdjustmentModal = ({ isOpen, onClose, rota, onSave, onOpenImage }) => {
       const response = await axios.get(`${API_BASE_URL}/rota-completa-ajuste`, {
         params: {
           codigo_rota: rota.ZH_CODIGO,
-          data_ref: dayjs(rota.ZB_DTENTRE).format('YYYY-MM-DD')
+          data_ref: dayjs.utc(rota.ZB_DTENTRE).format('YYYY-MM-DD')
         }
       });
       setData(response.data);
@@ -146,7 +149,7 @@ const AdjustmentModal = ({ isOpen, onClose, rota, onSave, onOpenImage }) => {
     try {
       const payload = {
         codigo_rota: rota.ZH_CODIGO,
-        data_ref: dayjs(rota.ZB_DTENTRE).format('YYYY-MM-DD'),
+        data_ref: dayjs.utc(rota.ZB_DTENTRE).format('YYYY-MM-DD'),
         inicio_rota: data.logs.find(l => l.acao === 'INICIO')?.data_hora,
         inicio_km: data.logs.find(l => l.acao === 'INICIO')?.km,
         fim_rota: data.logs.find(l => l.acao === 'ENCERRAR')?.data_hora,
@@ -195,7 +198,7 @@ const AdjustmentModal = ({ isOpen, onClose, rota, onSave, onOpenImage }) => {
         const response = await axios.delete(`${API_BASE_URL}/excluir-parada/${paradaId}`, {
           params: {
             codigo_rota: rota.ZH_CODIGO,
-            data_ref: dayjs(rota.ZB_DTENTRE).format('YYYY-MM-DD')
+            data_ref: dayjs.utc(rota.ZB_DTENTRE).format('YYYY-MM-DD')
           }
         });
         if (response.data.success) {
@@ -209,6 +212,33 @@ const AdjustmentModal = ({ isOpen, onClose, rota, onSave, onOpenImage }) => {
         console.error(error);
         Swal.fire({ icon: 'error', title: 'Erro', text: error.response?.data?.error || 'Erro ao excluir parada.' });
       }
+    }
+  };
+
+  const handleAddParada = async () => {
+    if (!newParada.local.trim()) {
+      Swal.fire({ icon: 'warning', title: 'Atenção', text: 'Informe o motivo/local da parada.' });
+      return;
+    }
+    setIsAddingParada(true);
+    try {
+      const response = await axios.post(`${API_BASE_URL}/adicionar-parada`, {
+        codigo_rota: rota.ZH_CODIGO,
+        data_ref: dayjs.utc(rota.ZB_DTENTRE).format('YYYY-MM-DD'),
+        local: newParada.local,
+        hora_inicio: newParada.hora_inicio || null,
+        hora_fim: newParada.hora_fim || null,
+        username: localStorage.getItem('username') || sessionStorage.getItem('username') || 'ADM'
+      });
+      if (response.data.success) {
+        setData(prev => ({ ...prev, paradas: [...prev.paradas, response.data.parada] }));
+        setNewParada({ local: '', hora_inicio: '', hora_fim: '' });
+        setShowAddParada(false);
+      }
+    } catch (error) {
+      Swal.fire({ icon: 'error', title: 'Erro', text: error.response?.data?.error || 'Erro ao adicionar parada.' });
+    } finally {
+      setIsAddingParada(false);
     }
   };
 
@@ -229,7 +259,7 @@ const AdjustmentModal = ({ isOpen, onClose, rota, onSave, onOpenImage }) => {
       try {
         const response = await axios.post(`${API_BASE_URL}/fechar-rota`, {
           codigo_rota: rota.ZH_CODIGO,
-          data_ref: dayjs(rota.ZB_DTENTRE).format('YYYY-MM-DD'),
+          data_ref: dayjs.utc(rota.ZB_DTENTRE).format('YYYY-MM-DD'),
           username: localStorage.getItem('username')
         });
         if (response.data.success) {
@@ -304,7 +334,7 @@ const AdjustmentModal = ({ isOpen, onClose, rota, onSave, onOpenImage }) => {
             </div>
             <div className="flex items-center gap-2">
                <span className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 px-3 py-1 rounded-full text-[10px] font-bold uppercase">Rota #{rota.ZH_ROTA}</span>
-               <span className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 px-3 py-1 rounded-full text-[10px] font-bold uppercase">{dayjs(rota.ZB_DTENTRE).format('DD/MM/YYYY')}</span>
+               <span className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 px-3 py-1 rounded-full text-[10px] font-bold uppercase">{dayjs.utc(rota.ZB_DTENTRE).format('DD/MM/YYYY')}</span>
             </div>
           </div>
 
@@ -402,10 +432,73 @@ const AdjustmentModal = ({ isOpen, onClose, rota, onSave, onOpenImage }) => {
 
           {/* Seção 3: Paradas (Daily Logs) */}
           <section className="space-y-4">
-             <div className="flex items-center gap-2 mb-2">
-                <span className="material-symbols-rounded text-amber-500">warning</span>
-                <h5 className="font-bold text-slate-700 dark:text-slate-200 uppercase text-xs tracking-widest">Paradas no Trajeto (Daily Logs)</h5>
+             <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                   <span className="material-symbols-rounded text-amber-500">warning</span>
+                   <h5 className="font-bold text-slate-700 dark:text-slate-200 uppercase text-xs tracking-widest">Paradas no Trajeto (Daily Logs)</h5>
+                </div>
+                {!isClosed && (
+                   <button
+                      onClick={() => setShowAddParada(v => !v)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-900/20 dark:hover:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-lg text-xs font-bold transition-all border border-amber-200 dark:border-amber-900/40"
+                   >
+                      <span className="material-symbols-rounded text-base">{showAddParada ? 'close' : 'add'}</span>
+                      {showAddParada ? 'Cancelar' : 'Adicionar Manual'}
+                   </button>
+                )}
              </div>
+
+             {/* Form de adição manual */}
+             {showAddParada && !isClosed && (
+                <div className="p-4 bg-amber-50/60 dark:bg-amber-900/10 rounded-2xl border border-amber-300 dark:border-amber-800/50 space-y-3">
+                   <p className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase tracking-widest">Nova Parada Manual</p>
+                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <div>
+                         <label className="text-[9px] font-bold text-amber-600/70 uppercase mb-1 block">Motivo / Local *</label>
+                         <input
+                            type="text"
+                            placeholder="Ex: ALMOÇO, MECÂNICO..."
+                            className="w-full bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/40 rounded-lg font-bold text-xs dark:text-white p-2 uppercase"
+                            value={newParada.local}
+                            onChange={e => setNewParada(p => ({ ...p, local: e.target.value }))}
+                         />
+                      </div>
+                      <div>
+                         <label className="text-[9px] font-bold text-amber-600/70 uppercase mb-1 block">Início Parada</label>
+                         <input
+                            type="datetime-local"
+                            className="w-full bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/40 rounded-lg font-bold text-xs dark:text-white p-2 dark:[color-scheme:dark]"
+                            value={newParada.hora_inicio}
+                            onChange={e => setNewParada(p => ({ ...p, hora_inicio: e.target.value }))}
+                         />
+                      </div>
+                      <div>
+                         <label className="text-[9px] font-bold text-amber-600/70 uppercase mb-1 block">Fim Parada</label>
+                         <input
+                            type="datetime-local"
+                            className="w-full bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-900/40 rounded-lg font-bold text-xs dark:text-white p-2 dark:[color-scheme:dark]"
+                            value={newParada.hora_fim}
+                            onChange={e => setNewParada(p => ({ ...p, hora_fim: e.target.value }))}
+                         />
+                      </div>
+                   </div>
+                   <div className="flex justify-end">
+                      <button
+                         onClick={handleAddParada}
+                         disabled={isAddingParada}
+                         className="flex items-center gap-2 px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs transition-all shadow-md shadow-amber-500/20"
+                      >
+                         {isAddingParada ? (
+                            <span className="material-symbols-rounded animate-spin text-sm">refresh</span>
+                         ) : (
+                            <span className="material-symbols-rounded text-sm">add_circle</span>
+                         )}
+                         {isAddingParada ? 'Adicionando...' : 'Adicionar Parada'}
+                      </button>
+                   </div>
+                </div>
+             )}
+
              {data.paradas.length === 0 ? (
                 <div className="p-6 bg-slate-50 dark:bg-slate-900/30 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-center">
                    <p className="text-slate-400 text-sm italic">Nenhuma parada registrada pelo motorista.</p>
@@ -948,17 +1041,7 @@ const Gerenciador = () => {
       // TABELA
       let timeline = [];
       let tempoParadasMinutos = 0;
-      
-      entregas.forEach(e => {
-        timeline.push({
-          tipo: 'ENTREGA',
-          local: e.ZB_NOMCLI,
-          chegada: e.chegada_em ? dayjs.utc(e.chegada_em) : null,
-          saida: e.concluido_em ? dayjs.utc(e.concluido_em) : null,
-          status: e.ZH_STATUS || 'PENDENTE'
-        });
-      });
-      
+
       paradas.forEach(p => {
         timeline.push({
           tipo: 'PARADA',
@@ -1221,7 +1304,7 @@ const Gerenciador = () => {
     <div className="min-h-screen bg-[#F3F4F6] dark:bg-[#0B1120] text-slate-800 dark:text-slate-100 font-sans transition-colors duration-300 pb-20">
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" rel="stylesheet" />
 
-      <AppHeader title="Gerenciador" subtitle="Entrega de Pedidos" icon="local_shipping" iconGradient="from-blue-600 to-cyan-400" iconShadow="shadow-blue-600/20" />
+      <AppHeader title="Gerenciador" subtitle="Entrega de Pedidos" icon="local_shipping" iconGradient="from-blue-600 to-cyan-400" iconShadow="shadow-blue-600/20" onBack="/faturamento" />
 
       {/* BACKGROUND DECORATION */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
@@ -1387,6 +1470,14 @@ const Gerenciador = () => {
         {/* FILTERS BAR */}
         <div className="mb-8 animate-in slide-in-from-bottom-2 duration-500 delay-150">
           <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm p-4 rounded-2xl border border-white/20 dark:border-slate-700 shadow-sm flex flex-col md:flex-row items-center gap-3">
+            <button
+              onClick={() => navigate('/faturamento')}
+              className="flex items-center gap-2 px-5 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 font-bold transition-all text-sm uppercase shrink-0"
+            >
+              <span className="material-symbols-rounded">arrow_back</span>
+              <span className="hidden md:inline">Voltar</span>
+            </button>
+
             <div className="relative w-full md:w-48">
               <select value={filtro} onChange={(e) => setFiltro(e.target.value)} className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-white appearance-none outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer font-bold text-sm uppercase">
                 <option value="bilhete">Bilhete</option>

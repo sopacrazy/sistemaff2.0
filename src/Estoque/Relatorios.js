@@ -104,52 +104,48 @@ const RelatoriosPage = () => {
   ];
 
   // ========== ABRIR DIÁLOGO DE PARÂMETROS ==========
+  const addDateMask = (inputEl) => {
+    inputEl.addEventListener("input", (e) => {
+      let value = e.target.value.replace(/\D/g, "");
+      if (value.length >= 2) value = value.substring(0, 2) + "/" + value.substring(2);
+      if (value.length >= 5) value = value.substring(0, 5) + "/" + value.substring(5, 9);
+      e.target.value = value;
+    });
+  };
+
   const abrirDialogParams = async (report) => {
+    const isFaltas = report.id === "faltas";
     const result = await Swal.fire({
       title: report.title,
       html: `
         <div class="space-y-4 text-left">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Data</label>
-            <input type="text" id="swal-data-display" value="${formatDateToBR(
-              dataRel
-            )}" placeholder="DD/MM/AAAA" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900">
+          <div style="display:flex;gap:12px;">
+            <div style="flex:1">
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">${isFaltas ? "De (Data Início)" : "Data"}</label>
+              <input type="text" id="swal-data-display" value="${formatDateToBR(dataRel)}" placeholder="DD/MM/AAAA" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900">
+            </div>
+            ${isFaltas ? `
+            <div style="flex:1">
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Até (Data Fim)</label>
+              <input type="text" id="swal-data-fim" value="${formatDateToBR(dataRel)}" placeholder="DD/MM/AAAA" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900">
+            </div>
+            ` : ""}
           </div>
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Local</label>
             <select id="swal-local" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900">
-              <option value="01" ${
-                local === "01" ? "selected" : ""
-              }>01 - Loja</option>
-              <option value="02" ${
-                local === "02" ? "selected" : ""
-              }>02 - Depósito</option>
-              <option value="03" ${
-                local === "03" ? "selected" : ""
-              }>03 - B.T.F</option>
-              <option value="04" ${
-                local === "04" ? "selected" : ""
-              }>04 - Depósito da Banana</option>
-              <option value="05" ${
-                local === "05" ? "selected" : ""
-              }>05 - Depósito do Ovo</option>
-              <option value="06" ${
-                local === "06" ? "selected" : ""
-              }>06 - Passarela 02 (torres)</option>
-              <option value="07" ${
-                local === "07" ? "selected" : ""
-              }>07 - Centro de Distribuição (C.D)</option>
-              <option value="08" ${
-                local === "08" ? "selected" : ""
-              }>08 - Varejinho</option>
-              <option value="09" ${
-                local === "09" ? "selected" : ""
-              }>09 - Passarela 01</option>
+              <option value="01" ${local === "01" ? "selected" : ""}>01 - Loja</option>
+              <option value="02" ${local === "02" ? "selected" : ""}>02 - Depósito</option>
+              <option value="03" ${local === "03" ? "selected" : ""}>03 - B.T.F</option>
+              <option value="04" ${local === "04" ? "selected" : ""}>04 - Depósito da Banana</option>
+              <option value="05" ${local === "05" ? "selected" : ""}>05 - Depósito do Ovo</option>
+              <option value="06" ${local === "06" ? "selected" : ""}>06 - Passarela 02 (torres)</option>
+              <option value="07" ${local === "07" ? "selected" : ""}>07 - Centro de Distribuição (C.D)</option>
+              <option value="08" ${local === "08" ? "selected" : ""}>08 - Varejinho</option>
+              <option value="09" ${local === "09" ? "selected" : ""}>09 - Passarela 01</option>
             </select>
           </div>
-          ${
-            report.id === "faltas"
-              ? `
+          ${isFaltas ? `
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tipo de Relatório</label>
             <select id="swal-tipo" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900">
@@ -157,9 +153,7 @@ const RelatoriosPage = () => {
               <option value="compras">Compras (Falta × Compra = Total)</option>
             </select>
           </div>
-          `
-              : ""
-          }
+          ` : ""}
         </div>
       `,
       showCancelButton: true,
@@ -167,37 +161,39 @@ const RelatoriosPage = () => {
       cancelButtonText: "Cancelar",
       customClass: {
         popup: "rounded-2xl",
-        confirmButton:
-          "bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg",
-        cancelButton:
-          "bg-gray-300 hover:bg-gray-400 text-gray-700 px-6 py-2 rounded-lg",
+        confirmButton: "bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg",
+        cancelButton: "bg-gray-300 hover:bg-gray-400 text-gray-700 px-6 py-2 rounded-lg",
       },
       didOpen: () => {
-        const inputData = document.getElementById("swal-data-display");
-        inputData.addEventListener("input", (e) => {
-          let value = e.target.value.replace(/\D/g, "");
-          if (value.length >= 2) {
-            value = value.substring(0, 2) + "/" + value.substring(2);
-          }
-          if (value.length >= 5) {
-            value = value.substring(0, 5) + "/" + value.substring(5, 9);
-          }
-          e.target.value = value;
-        });
+        addDateMask(document.getElementById("swal-data-display"));
+        const fimEl = document.getElementById("swal-data-fim");
+        if (fimEl) addDateMask(fimEl);
       },
       preConfirm: () => {
         const dataDisplay = document.getElementById("swal-data-display").value;
+        const dataFimDisplay = document.getElementById("swal-data-fim")?.value || dataDisplay;
         const localSelecionado = document.getElementById("swal-local").value;
         const tipo = document.getElementById("swal-tipo")?.value || "padrao";
 
         const dateRegex = /^(\d{2})\/(\d{2})\/(\d{4})$/;
         if (!dateRegex.test(dataDisplay)) {
-          Swal.showValidationMessage("Data inválida! Use o formato DD/MM/AAAA");
+          Swal.showValidationMessage("Data Início inválida! Use o formato DD/MM/AAAA");
+          return false;
+        }
+        if (isFaltas && !dateRegex.test(dataFimDisplay)) {
+          Swal.showValidationMessage("Data Fim inválida! Use o formato DD/MM/AAAA");
           return false;
         }
 
         const dataUS = formatDateToUS(dataDisplay);
-        return { data: dataUS, local: localSelecionado, tipo };
+        const dataFimUS = formatDateToUS(dataFimDisplay);
+
+        if (isFaltas && dataFimUS < dataUS) {
+          Swal.showValidationMessage("Data Fim não pode ser anterior à Data Início");
+          return false;
+        }
+
+        return { data: dataUS, dataFim: dataFimUS, local: localSelecionado, tipo };
       },
     });
 
@@ -206,7 +202,8 @@ const RelatoriosPage = () => {
         report.id,
         result.value.data,
         result.value.local,
-        result.value.tipo
+        result.value.tipo,
+        result.value.dataFim
       );
     }
   };
@@ -335,7 +332,8 @@ const RelatoriosPage = () => {
     tipo,
     data,
     localParam,
-    tipoRelatorio = "padrao"
+    tipoRelatorio = "padrao",
+    dataFim = null
   ) => {
     setLoading(true);
     try {
@@ -344,7 +342,8 @@ const RelatoriosPage = () => {
 
       if (tipo === "faltas") {
         endpoint = "/relatorios-public/faltas/pdf";
-        params.tipo = tipoRelatorio; // Adiciona o tipo (padrao ou compras)
+        params.tipo = tipoRelatorio;
+        if (dataFim && dataFim !== data) params.dataFim = dataFim;
       } else if (tipo === "faltasProduto") {
         endpoint = "/relatorios-public/faltas-mov/pdf";
       } else if (tipo === "avarias") {

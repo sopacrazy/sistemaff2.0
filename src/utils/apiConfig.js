@@ -10,7 +10,7 @@ function getApiBaseUrl() {
 
   const hostname = window.location.hostname;
   const protocol = window.location.protocol;
-  const port = 4006; // Porta padrão do backend (Sincronizada com server.js)
+  const port = 3001; // Porta padrão do backend (Sincronizada com server.js e .env)
 
   // 2. Se estiver em localhost ou 127.0.0.1, usa localhost:3001
   if (hostname === "localhost" || hostname === "127.0.0.1") {

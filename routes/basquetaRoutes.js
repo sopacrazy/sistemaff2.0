@@ -394,19 +394,23 @@ module.exports = (dbOcorrencias, getPool) => {
 
     // 2. Salvar Movimentação Manual (Retorno ou Ajuste)
     router.post("/ajuste-cliente", async (req, res) => {
-        const { cliente, nome, quantidade, tipo, usuario, motorista, bilhete, codProduto = '499.001' } = req.body;
+        const { cliente, nome, quantidade, tipo, usuario, motorista, bilhete, codProduto = '499.001', data } = req.body;
         
         if (!cliente || !quantidade) return res.status(400).json({ error: "Dados incompletos" });
 
+        const dataAjuste = data ? data : new Date().toISOString().split('T')[0];
+
         // Verificar Bloqueio de Fechamento
-        const dataAjuste = new Date().toISOString().split('T')[0];
         const [fechado] = await dbOcorrencias.promise().query("SELECT 1 FROM basquetas_fechamento WHERE data_fechamento = ? AND cod_produto = ?", [dataAjuste, codProduto]);
         if (fechado.length > 0) return res.status(403).json({ error: "Este dia já está fechado. Alterações não permitidas." });
 
         try {
+            const horaAtual = new Date().toTimeString().split(' ')[0]; // HH:MM:SS
+            const dataRegistro = data ? `${data} ${horaAtual}` : new Date();
+
             await dbOcorrencias.promise().query(
-                "INSERT INTO basquetas_mov_manual (cliente, cod_produto, nome, quantidade, tipo, usuario, motorista, bilhete) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                [cliente, codProduto, nome, parseFloat(quantidade), tipo || 'ENTRADA', usuario || 'SISTEMA', motorista || null, bilhete || null]
+                "INSERT INTO basquetas_mov_manual (cliente, cod_produto, nome, quantidade, tipo, usuario, motorista, bilhete, data_registro) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [cliente, codProduto, nome, parseFloat(quantidade), tipo || 'ENTRADA', usuario || 'SISTEMA', motorista || null, bilhete || null, dataRegistro]
             );
             res.json({ success: true, message: "Movimentação registrada com sucesso" });
         } catch (err) {
@@ -434,8 +438,8 @@ module.exports = (dbOcorrencias, getPool) => {
 
     // 5. Salvar Inventário Diário (Snaphot)
     router.post("/inventario", async (req, res) => {
-        const { cliente, saldo_sistema, saldo_fisico, usuario, codProduto = '499.001' } = req.body;
-        const hoje = new Date().toISOString().split('T')[0];
+        const { cliente, saldo_sistema, saldo_fisico, usuario, codProduto = '499.001', data } = req.body;
+        const hoje = data ? data : new Date().toISOString().split('T')[0];
 
         // Bloqueio se fechado
         const [fechado] = await dbOcorrencias.promise().query("SELECT 1 FROM basquetas_fechamento WHERE data_fechamento = ? AND cod_produto = ?", [hoje, codProduto]);
@@ -468,14 +472,14 @@ module.exports = (dbOcorrencias, getPool) => {
 
     // 6. Transferência de itens entre clientes
     router.post("/transferencia", async (req, res) => {
-        const { clienteOrigem, nomeOrigem, clienteDestino, nomeDestino, quantidade, usuario, codProduto = '499.001' } = req.body;
+        const { clienteOrigem, nomeOrigem, clienteDestino, nomeDestino, quantidade, usuario, codProduto = '499.001', data } = req.body;
         
         if (!clienteOrigem || !clienteDestino || !quantidade || quantidade <= 0) {
             return res.status(400).json({ error: "Dados incompletos ou quantidade inválida" });
         }
 
         // Verificar Bloqueio de Fechamento
-        const hoje = new Date().toISOString().split('T')[0];
+        const hoje = data ? data : new Date().toISOString().split('T')[0];
         const [fechado] = await dbOcorrencias.promise().query("SELECT 1 FROM basquetas_fechamento WHERE data_fechamento = ? AND cod_produto = ?", [hoje, codProduto]);
         if (fechado.length > 0) return res.status(403).json({ error: "Este dia já está fechado. Transferências não permitidas." });
 
@@ -484,16 +488,19 @@ module.exports = (dbOcorrencias, getPool) => {
             try {
                 await conn.beginTransaction();
 
+                const horaAtual = new Date().toTimeString().split(' ')[0]; // HH:MM:SS
+                const dataRegistro = data ? `${data} ${horaAtual}` : new Date();
+
                 // 1. Saída do Cliente de Origem -> Ele "devolve" o item para o sistema (TRANSF_ENTRADA)
                 await conn.query(
-                    "INSERT INTO basquetas_mov_manual (cliente, cod_produto, nome, quantidade, tipo, usuario, bilhete) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    [clienteOrigem, codProduto, nomeOrigem, quantidade, 'TRANSF_ENTRADA', usuario || 'SISTEMA', `TRANSF. PARA ${clienteDestino}`]
+                    "INSERT INTO basquetas_mov_manual (cliente, cod_produto, nome, quantidade, tipo, usuario, bilhete, data_registro) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    [clienteOrigem, codProduto, nomeOrigem, quantidade, 'TRANSF_ENTRADA', usuario || 'SISTEMA', `TRANSF. PARA ${clienteDestino}`, dataRegistro]
                 );
 
                 // 2. Entrada no Cliente de Destino -> Ele "recebe" o item do sistema (TRANSF_SAIDA)
                 await conn.query(
-                    "INSERT INTO basquetas_mov_manual (cliente, cod_produto, nome, quantidade, tipo, usuario, bilhete) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    [clienteDestino, codProduto, nomeDestino, quantidade, 'TRANSF_SAIDA', usuario || 'SISTEMA', `TRANSF. DE ${clienteOrigem}`]
+                    "INSERT INTO basquetas_mov_manual (cliente, cod_produto, nome, quantidade, tipo, usuario, bilhete, data_registro) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    [clienteDestino, codProduto, nomeDestino, quantidade, 'TRANSF_SAIDA', usuario || 'SISTEMA', `TRANSF. DE ${clienteOrigem}`, dataRegistro]
                 );
 
                 await conn.commit();

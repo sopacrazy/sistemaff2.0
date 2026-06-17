@@ -11,10 +11,10 @@ const AppHeader = ({
   iconShadow = 'shadow-green-600/20',
   onBack,
   canChangeLocal = false,
-  onLocalClick,
+  onLocalClick = () => {},
   userMenuItems = [],
-  localValue,
-  usernameValue,
+  localValue = '',
+  usernameValue = '',
 }) => {
   const navigate = useNavigate();
   const { theme, toggleTheme } = useTheme();

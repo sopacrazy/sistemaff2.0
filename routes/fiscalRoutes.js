@@ -697,5 +697,219 @@ module.exports = (getPool, dbMySQL) => {
     }
   });
 
+  router.post("/relatorios/baixas", async (req, res) => {
+    const pool = getPool();
+    if (!pool) return res.status(503).json({ error: "Sem conexão DB" });
+
+    const { dataInicio, dataFim, nota, filial = "01", prefixos } = req.body;
+
+    let filtros = ` AND SE5.E5_FILIAL = @filial `;
+
+    if (nota) {
+      filtros += ` AND (SE5.E5_NUMERO = @nota OR SE5.E5_NUMERO LIKE '%' + @nota + '%' OR SE2.E2_REFNF LIKE '%' + @nota + '%') `;
+    } else {
+      if (!dataInicio || !dataFim) {
+        return res.status(400).json({ error: "Filtros de data incompletos" });
+      }
+      const dIni = formatarDataParaProtheus(dataInicio);
+      const dFim = formatarDataParaProtheus(dataFim);
+      filtros += ` AND SE5.E5_DATA BETWEEN '${dIni}' AND '${dFim}' `;
+    }
+
+    let prefixFilter = "";
+    if (prefixos && Array.isArray(prefixos) && prefixos.length > 0) {
+      prefixFilter = ` AND SE5.E5_PREFIXO IN (${prefixos.map((_, idx) => `@prefixo_${idx}`).join(', ')}) `;
+    }
+
+    const QUERY_BAIXAS = `
+      SELECT
+        SE5.E5_FILIAL AS filial,
+        RTRIM(SE5.E5_PREFIXO) AS prefixo,
+        RTRIM(SE5.E5_NUMERO) AS numero,
+        RTRIM(SE5.E5_TIPO) AS tipo,
+        RTRIM(SE5.E5_CLIFOR) AS clifor,
+        RTRIM(SE5.E5_LOJA) AS loja,
+        RTRIM(SA2.A2_NOME) AS nomeFornecedor,
+        RTRIM(SA2.A2_CONTA) AS contaContabil,
+        RTRIM(SE5.E5_NATUREZ) AS natureza,
+        SE5.E5_VENCTO AS vencimento,
+        RTRIM(SE5.E5_HISTOR) AS historico,
+        SE5.E5_DATA AS dataBaixa,
+        SE5.E5_VALOR AS valorBaixado,
+        RTRIM(SE5.E5_BANCO) AS banco,
+        SE5.E5_DTDIGIT AS dataDigitacao,
+        RTRIM(SE2.E2_REFNF) AS refNfe,
+        SE2.E2_VALOR AS valorOriginalTitulo
+      FROM SE5140 SE5
+      INNER JOIN SE2140 SE2 
+        ON SE2.E2_FILIAL = SE5.E5_FILIAL 
+        AND SE2.E2_NUM = SE5.E5_NUMERO 
+        AND SE2.E2_PREFIXO = SE5.E5_PREFIXO 
+        AND SE2.E2_FORNECE = SE5.E5_CLIFOR 
+        AND SE2.E2_LOJA = SE5.E5_LOJA 
+        AND SE2.E2_TIPO = SE5.E5_TIPO
+        AND SE2.E2_PARCELA = SE5.E5_PARCELA
+        AND SE2.D_E_L_E_T_ = ' '
+      LEFT JOIN SA2140 SA2
+        ON SA2.A2_COD = SE5.E5_CLIFOR
+        AND SA2.A2_LOJA = SE5.E5_LOJA
+        AND SA2.A2_FILIAL = SE5.E5_FILIAL
+        AND SA2.D_E_L_E_T_ = ' '
+      WHERE SE5.D_E_L_E_T_ = ' ' 
+        ${prefixFilter}
+        ${filtros}
+      ORDER BY SE5.E5_DATA DESC, SE5.E5_NUMERO ASC
+    `;
+
+    try {
+      const request = pool.request();
+      request.input("filial", sql.VarChar, filial);
+      if (nota) request.input("nota", sql.VarChar, nota.trim());
+      
+      if (prefixos && Array.isArray(prefixos) && prefixos.length > 0) {
+        prefixos.forEach((p, idx) => {
+          request.input(`prefixo_${idx}`, sql.VarChar, p.trim());
+        });
+      }
+
+      const result = await request.query(QUERY_BAIXAS);
+
+      const extrairNotas = (refNfeStr) => {
+        if (!refNfeStr) return [];
+        return refNfeStr.split('/')
+          .map(x => x.trim())
+          .filter(x => x.length > 0);
+      };
+
+      const notesSet = new Set();
+      result.recordset.forEach(row => {
+        extrairNotas(row.refNfe).forEach(n => {
+          notesSet.add(n);
+          if (n.length < 9 && /^\d+$/.test(n)) {
+            notesSet.add(n.padStart(9, '0'));
+          }
+        });
+      });
+
+      const uniqueNotes = Array.from(notesSet);
+      const sfMap = {};
+
+      if (uniqueNotes.length > 0) {
+        const batchSize = 500;
+        for (let i = 0; i < uniqueNotes.length; i += batchSize) {
+          const batch = uniqueNotes.slice(i, i + batchSize);
+          const sfRequest = pool.request();
+          batch.forEach((note, idx) => {
+            sfRequest.input(`n_${idx}`, sql.VarChar, note);
+          });
+
+          const sfQuery = `
+            SELECT RTRIM(F1_DOC) AS doc, RTRIM(F1_FORNECE) AS fornece, RTRIM(F1_LOJA) AS loja, F1_VALBRUT AS valor
+            FROM SF1140
+            WHERE D_E_L_E_T_ = ' '
+              AND F1_DOC IN (${batch.map((_, idx) => `@n_${idx}`).join(', ')})
+          `;
+
+          const sfRes = await sfRequest.query(sfQuery);
+          sfRes.recordset.forEach(sf => {
+            const keyExact = `${sf.fornece}_${sf.loja}_${sf.doc}`;
+            sfMap[keyExact] = sf.valor;
+            if (/^\d+$/.test(sf.doc)) {
+              sfMap[`${sf.fornece}_${sf.loja}_${parseInt(sf.doc, 10)}`] = sf.valor;
+            }
+          });
+        }
+      }
+
+      const formatarData = (dataStr) => {
+        if (!dataStr || dataStr.trim() === "") return "";
+        const clean = dataStr.trim();
+        if (clean.length !== 8) return clean;
+        return `${clean.substring(0, 4)}-${clean.substring(4, 6)}-${clean.substring(6, 8)}`;
+      };
+
+      const formatarMoeda = (num) => {
+        if (num === null || num === undefined) return "";
+        const parts = parseFloat(num).toFixed(2).split(".");
+        parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+        return parts.join(",");
+      };
+
+      const dadosFormatados = result.recordset.map((row) => {
+        const parts = extrairNotas(row.refNfe);
+        let valorNfe = null;
+        let valoresNfeDet = "";
+
+        if (parts.length > 0) {
+          const detStrings = [];
+          parts.forEach(n => {
+            const keyExact = `${row.clifor.trim()}_${row.loja ? row.loja.trim() : '01'}_${n}`;
+            const keyInt = `${row.clifor.trim()}_${row.loja ? row.loja.trim() : '01'}_${parseInt(n, 10)}`;
+            const val = sfMap[keyExact] !== undefined ? sfMap[keyExact] : sfMap[keyInt];
+
+            if (val !== undefined && val !== null) {
+              if (valorNfe === null) valorNfe = 0;
+              valorNfe += val;
+              detStrings.push(formatarMoeda(val));
+            } else {
+              detStrings.push("-");
+            }
+          });
+          valoresNfeDet = detStrings.join(" / ");
+        }
+
+        return {
+          filial: row.filial.trim(),
+          prefixo: row.prefixo,
+          numero: row.numero,
+          tipo: row.tipo,
+          clifor: row.clifor,
+          nomeFornecedor: row.nomeFornecedor ? row.nomeFornecedor.trim() : "SEM CADASTRO",
+          contaContabil: row.contaContabil ? row.contaContabil.trim() : "",
+          natureza: row.natureza ? row.natureza.trim() : "",
+          vencimento: formatarData(row.vencimento),
+          historico: row.historico ? row.historico.trim() : "",
+          dataBaixa: formatarData(row.dataBaixa),
+          valorBaixado: parseFloat(row.valorBaixado || 0),
+          banco: row.banco,
+          dataDigitacao: formatarData(row.dataDigitacao),
+          refNfe: row.refNfe ? row.refNfe.trim().replace(/\/+$/, '') : "",
+          valorOriginalTitulo: parseFloat(row.valorOriginalTitulo || 0),
+          valorNfe: valorNfe,
+          valoresNfeDet: valoresNfeDet,
+        };
+      });
+
+      res.json(dadosFormatados);
+    } catch (err) {
+      console.error("Erro Relatório de Baixas:", err.message);
+      res.status(500).json({ error: "Erro SQL ao buscar relatório de baixas", details: err.message });
+    }
+  });
+
+  router.get("/relatorios/baixas/prefixos", async (req, res) => {
+    const pool = getPool();
+    if (!pool) return res.status(503).json({ error: "Sem conexão DB" });
+
+    const filial = req.query.filial || "01";
+
+    try {
+      const request = pool.request();
+      request.input("filial", sql.VarChar, filial);
+      const result = await request.query(`
+        SELECT DISTINCT RTRIM(E5_PREFIXO) AS prefixo
+        FROM SE5140 SE5
+        WHERE SE5.D_E_L_E_T_ = ' ' AND SE5.E5_PREFIXO <> ''
+          AND SE5.E5_FILIAL = @filial
+        ORDER BY prefixo
+      `);
+      const prefixos = result.recordset.map(r => r.prefixo.trim()).filter(Boolean);
+      res.json(prefixos);
+    } catch (err) {
+      console.error("Erro ao buscar prefixos de baixas:", err.message);
+      res.status(500).json({ error: "Erro SQL ao buscar prefixos", details: err.message });
+    }
+  });
+
   return router;
 };

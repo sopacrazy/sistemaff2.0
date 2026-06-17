@@ -149,7 +149,8 @@ const BasquetaControl = () => {
                 tipo: 'ENTRADA', // Sempre ENTRADA para retorno
                 motorista: newMovement.motorista,
                 usuario: username,
-                codProduto: selectedProduct.id
+                codProduto: selectedProduct.id,
+                data: date
             });
             
             setIsAddingNew(false);
@@ -176,19 +177,19 @@ const BasquetaControl = () => {
 
             const currentVal = newMovement.currentVal;
             const diff = countValue - currentVal;
-            
-            // 1. Salvar Snapshot de Inventário (Auditoria)
+              // 1. Salvar Snapshot de Inventário (Auditoria)
             await axios.post(`${API_BASE_URL}/api/basquetas/inventario`, {
                 cliente: newMovement.cliente,
                 saldo_sistema: currentVal,
                 saldo_fisico: countValue,
                 usuario: username,
-                codProduto: selectedProduct.id
+                codProduto: selectedProduct.id,
+                data: date
             });
 
             // 2. Ajustar Saldo Sistêmico para bater com a contagem física
             if (diff !== 0) {
-                // Se a contagem física é MENOR que o sistema, o cliente "devolveu" (ENTRADA)
+                // Se a contagem física é MENOR que o sistema, o cliente "devolve" (ENTRADA)
                 // Se a contagem física é MAIOR que o sistema, o cliente "levou" (SAIDA)
                 await axios.post(`${API_BASE_URL}/api/basquetas/ajuste-cliente`, {
                     cliente: newMovement.cliente,
@@ -197,7 +198,8 @@ const BasquetaControl = () => {
                     tipo: diff < 0 ? 'ENTRADA' : 'SAIDA',
                     usuario: username,
                     bilhete: "AJUSTE INVENTÁRIO",
-                    codProduto: selectedProduct.id
+                    codProduto: selectedProduct.id,
+                    data: date
                 });
             }
 
@@ -291,7 +293,8 @@ const BasquetaControl = () => {
                 nomeDestino: transferData.nomeDestino,
                 quantidade: transferData.quantidade,
                 usuario: username,
-                codProduto: selectedProduct.id
+                codProduto: selectedProduct.id,
+                data: date
             });
             
             setIsTransferring(false);

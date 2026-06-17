@@ -2,6 +2,55 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ═══════════════════════════════════════════════════════════════
+   MODO DE TESTE — ativo quando <html> tem a classe .test-mode
+   Aplicado automaticamente pelo ThemeContext quando
+   DB_NAME_OCORRENCIAS != "ocorrencias"
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Borda vermelha em todo o viewport */
+html.test-mode::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  border: 4px solid #dc2626;
+  pointer-events: none;
+  z-index: 999998;
+  animation: testmodeborder 2s ease-in-out infinite;
+}
+
+/* Empurra o conteúdo para baixo do banner fixo */
+html.test-mode .app-content-wrapper {
+  padding-top: 36px !important;
+}
+
+/* Animação de pulso na borda */
+@keyframes testmodeborder {
+  0%, 100% { border-color: #dc2626; box-shadow: inset 0 0 0 2px rgba(220, 38, 38, 0.25); }
+  50%       { border-color: #ef4444; box-shadow: inset 0 0 0 2px rgba(239, 68, 68, 0.45); }
+}
+
+/* Animação de pulso no banner */
+@keyframes testmodepulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.88; }
+}
+
+/* Indicador na scrollbar (linha vermelha no topo da página) */
+html.test-mode body::before {
+  content: '';
+  display: block;
+  height: 4px;
+  background: #dc2626;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000000;
+  pointer-events: none;
+}
+/* ═══════════════════════════════════════════════════════════════ */
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',

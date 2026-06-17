@@ -111,7 +111,10 @@ const Devolucao = () => {
 
                 // Devolucoes
                 const resDev = await axios.get(`${API_BASE_URL}/devolucoes`);
-                const filtras = resDev.data.filter(d => d.origem === currentOrigem);
+                const filtras = resDev.data.filter(d => 
+                    d.origem === currentOrigem && 
+                    dayjs(d.data_inclusao).add(12, 'hour').format('YYYY-MM-DD') === dataTrabalho
+                );
                 setDevolucoes(filtras);
 
                 // Verificar fechamento
@@ -245,16 +248,24 @@ const Devolucao = () => {
                     </div>
 
                     <div className="flex items-center gap-2 md:gap-4">
-                    <Tooltip title="Alterar data na Home">
-                        <div className="hidden md:flex items-center gap-2 mr-2 bg-transparent px-3 py-2 rounded-xl group border border-transparent">
+                    <Tooltip title="Clique para alterar a data de trabalho">
+                        <div className="hidden md:flex items-center gap-2 mr-2 bg-transparent px-3 py-1.5 rounded-xl border border-slate-200/60 dark:border-slate-700/60 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
                             <div className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 p-1.5 rounded-lg">
                             <span className="material-symbols-rounded text-lg">calendar_today</span>
                             </div>
                             <div className="flex flex-col items-start leading-none">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Data</span>
-                            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">
-                                {dataTrabalho ? dayjs(dataTrabalho).add(12, 'hour').format('DD/MM/YYYY') : dayjs().format('DD/MM/YYYY')}
-                            </span>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Data</span>
+                            <input
+                                type="date"
+                                value={dataTrabalho}
+                                onChange={(e) => {
+                                    if (e.target.value) {
+                                        localStorage.setItem("data_trabalho", e.target.value);
+                                        window.location.reload();
+                                    }
+                                }}
+                                className="text-sm font-bold text-slate-700 dark:text-slate-200 bg-transparent border-none outline-none cursor-pointer focus:ring-0 p-0 dark:[color-scheme:dark]"
+                            />
                             </div>
                         </div>
                     </Tooltip>

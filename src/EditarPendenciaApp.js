@@ -111,6 +111,19 @@ const EditarPendenciaApp = () => {
   const [selecoes, setSelecoes] = useState({});
   const [buscaDesc, setBuscaDesc] = useState("");
   const [ocorrenciaOriginal, setOcorrenciaOriginal] = useState(null);
+  const [filialSelecionada, setFilialSelecionada] = useState("");
+
+  const remetenteMap = {
+    "140-01": "FORT FRUIT BELEM",
+    "140-04": "FORT FRUIT CASTANHAL",
+    "140-06": "FORT FRUIT PIEDADE",
+    "010-01": "FORT FRUIT ETANA",
+    "200-01": "FORT FRUIT PETROLINA",
+    "DEVOLUCAO": "FORT FRUIT BELEM",
+  };
+  const filialParaRemetente = (filial) => remetenteMap[filial] || "FORT FRUIT BELEM";
+  const remetenteParaFilial = (rem) =>
+    Object.entries(remetenteMap).find(([, v]) => v === rem)?.[0] || "140-01";
 
   // Dialog OBS Item
   const [obsDialogOpen, setObsDialogOpen] = useState(false);
@@ -164,6 +177,7 @@ const EditarPendenciaApp = () => {
       const data = resp.data;
 
       setOcorrenciaOriginal(data);
+      setFilialSelecionada(remetenteParaFilial(data.remetente || ""));
 
       // Preenche form básico
       setForm(prev => ({
@@ -445,10 +459,12 @@ const EditarPendenciaApp = () => {
       ? String(cabecalho?.NOTA_ORIGEM || cabecalho?.Z4_NOTA || "").replace(/\D/g, "").slice(0, 12)
       : (form.notaOrigem || "");
 
+    const remetenteSelecionado = filialParaRemetente(filialSelecionada);
+
     const payload = {
       ...ocorrenciaOriginal, // Mantém dados originais que não mudaram
-      numero: String(cabecalho?.Z4_CARGA || ocorrenciaOriginal.numero || ""), // Carga é o 'numero' da ocorrencia geralmente
-      remetente: ocorrenciaOriginal.remetente, // Não muda remetente na edição
+      numero: String(cabecalho?.Z4_CARGA || ocorrenciaOriginal.numero || ""),
+      remetente: remetenteSelecionado,
       data: form.data || new Date().toISOString().slice(0, 10),
       cliente: form.cliente,
       // Se não tiver fornecedorCod, tenta manter o que tinha
@@ -474,6 +490,16 @@ const EditarPendenciaApp = () => {
 
     try {
       await axios.put(`${API_BASE_URL}/ocorrencias/${id}`, payload);
+
+      const remetentesParaEmail = ["FORT FRUIT ETANA", "FORT FRUIT PIEDADE", "FORT FRUIT PETROLINA"];
+      if (remetentesParaEmail.includes(remetenteSelecionado)) {
+        try {
+          await axios.post(`${API_BASE_URL}/api/enviar-email-devolucao`, payload);
+        } catch (emailError) {
+          console.error("Erro ao enviar e-mail:", emailError);
+        }
+      }
+
       Swal.fire("Sucesso", "Ocorrência atualizada com sucesso!", "success");
       navigate("/ocorrencias");
     } catch (error) {
@@ -508,6 +534,26 @@ const EditarPendenciaApp = () => {
         {/* Search Box / Info */}
         <div className="bg-white/80 dark:bg-slate-800/90 backdrop-blur-sm rounded-3xl p-8 shadow-xl border border-white/20 dark:border-slate-700/50 mb-8">
           <div className="flex flex-col md:flex-row gap-4 items-end">
+            <div className="w-full md:w-64">
+              <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">
+                Empresa / Filial
+                {["FORT FRUIT ETANA", "FORT FRUIT PIEDADE", "FORT FRUIT PETROLINA"].includes(filialParaRemetente(filialSelecionada)) && (
+                  <span className="ml-2 text-xs font-normal text-blue-600 dark:text-blue-400">✉ Email será enviado</span>
+                )}
+              </label>
+              <select
+                value={filialSelecionada}
+                onChange={(e) => setFilialSelecionada(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700/50 focus:ring-2 focus:ring-blue-500 outline-none transition-all font-bold text-lg"
+              >
+                <option value="140-01">Belém</option>
+                <option value="140-04">Castanhal</option>
+                <option value="140-06">Piedade</option>
+                <option value="010-01">Etana</option>
+                <option value="200-01">Petrolina</option>
+                <option value="DEVOLUCAO">Devolução</option>
+              </select>
+            </div>
             <div className="flex-1 w-full">
               <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Número do Bilhete ou Nota (Vinculado)</label>
               <input
@@ -515,11 +561,10 @@ const EditarPendenciaApp = () => {
                 value={form.bilhete}
                 onChange={handleChange}
                 name="bilhete"
-                disabled={true} // Em edição de pendência vinculada, talvez não devêssemos deixar mudar o bilhete drasticamente, mas se o user quiser buscar outro... vamos deixar 'semi-locked' ou com aviso no manualSearch
+                disabled={true}
                 className="w-full px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700 focus:ring-2 focus:ring-blue-500 outline-none transition-all uppercase font-bold text-lg text-slate-500"
               />
             </div>
-
           </div>
         </div>
 

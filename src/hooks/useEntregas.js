@@ -49,7 +49,9 @@ const useEntregas = (dataFiltro) => {
         // Ocultar rotas específicas conforme solicitação do usuário
         const rotasFiltradas = dadosProcessados.filter(rota => {
           const numRota = String(rota.ZH_ROTA).trim();
-          return numRota !== '000031' && numRota !== '000019' && numRota !== '000034';
+          const nomeRota = String(rota.ZH_NOME || "").toUpperCase();
+          return numRota !== '000031' && numRota !== '000019' && numRota !== '000034' &&
+                 !nomeRota.includes("MACAPA") && !nomeRota.includes("CASTANHAL") && !nomeRota.includes("RETIRA");
         });
 
         setRotas(rotasFiltradas);

@@ -46,6 +46,8 @@ const Abastecimento = () => {
     const [filterStartDate, setFilterStartDate] = useState('');
     const [filterEndDate, setFilterEndDate] = useState('');
     const [filterEmpresa, setFilterEmpresa] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const itemsPerPage = 10;
 
     // Lista de abastecimentos
     const [abastecimentos, setAbastecimentos] = useState([]);
@@ -66,6 +68,7 @@ const Abastecimento = () => {
     const [isFechamentoModalOpen, setIsFechamentoModalOpen] = useState(false);
     const [fechamentoStartDate, setFechamentoStartDate] = useState('');
     const [fechamentoEndDate, setFechamentoEndDate] = useState('');
+    const [selectedFechamentoPostos, setSelectedFechamentoPostos] = useState([]);
 
     const fetchAbastecimentos = async () => {
         try {
@@ -245,6 +248,25 @@ const Abastecimento = () => {
 
             return updated;
         });
+    };
+
+    const handleRequerimentoBlur = () => {
+        const requerimentoAtual = String(formData.requerimento || '').trim().toUpperCase();
+        if (!requerimentoAtual) return;
+
+        const requerimentoDuplicado = abastecimentos.find(item => {
+            const mesmoRequerimento = String(item.requerimento || '').trim().toUpperCase() === requerimentoAtual;
+            const mesmoRegistro = isEditing && String(item.id) === String(formData.id);
+            return mesmoRequerimento && !mesmoRegistro;
+        });
+
+        if (requerimentoDuplicado) {
+            Swal.fire(
+                'Atenção',
+                `O requerimento ${formData.requerimento} já foi lançado no sistema.`,
+                'warning'
+            );
+        }
     };
 
     const handleSubmit = async (e) => {
@@ -485,6 +507,11 @@ const Abastecimento = () => {
             return;
         }
 
+        if (selectedFechamentoPostos.length === 0) {
+            Swal.fire("Aviso", "Selecione pelo menos um posto para gerar o fechamento.", "warning");
+            return;
+        }
+
         const doc = new jsPDF('p', 'mm', 'a4');
         const todayStr = new Date().toLocaleDateString('pt-BR');
         
@@ -530,7 +557,8 @@ const Abastecimento = () => {
             const filtered = abastecimentos.filter(item => {
                 if (!item.data_registro) return false;
                 const itemDate = item.data_registro.split('T')[0];
-                return itemDate >= fechamentoStartDate && itemDate <= fechamentoEndDate;
+                const posto = item.posto?.trim().toUpperCase() || 'NÃO INFORMADO';
+                return itemDate >= fechamentoStartDate && itemDate <= fechamentoEndDate && selectedFechamentoPostos.includes(posto);
             });
 
             // Agrupamento
@@ -636,6 +664,7 @@ const Abastecimento = () => {
             setIsFechamentoModalOpen(false);
             setFechamentoStartDate('');
             setFechamentoEndDate('');
+            setSelectedFechamentoPostos([]);
         };
 
         img.onload = buildPDF;
@@ -680,6 +709,22 @@ const Abastecimento = () => {
         });
     }, [abastecimentos, searchTerm, filterStartDate, filterEndDate, filterEmpresa]);
 
+    const totalPages = Math.ceil(filteredAbastecimentos.length / itemsPerPage);
+    const paginatedAbastecimentos = useMemo(() => {
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        return filteredAbastecimentos.slice(startIndex, startIndex + itemsPerPage);
+    }, [filteredAbastecimentos, currentPage]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [searchTerm, filterStartDate, filterEndDate, filterEmpresa]);
+
+    useEffect(() => {
+        if (totalPages > 0 && currentPage > totalPages) {
+            setCurrentPage(totalPages);
+        }
+    }, [currentPage, totalPages]);
+
     const handleDelete = (id) => {
         Swal.fire({
             title: 'Tem certeza?',
@@ -709,6 +754,24 @@ const Abastecimento = () => {
         setFilterEndDate('');
         setFilterEmpresa('');
     };
+
+    const fechamentoPostosDisponiveis = useMemo(() => {
+        if (!fechamentoStartDate || !fechamentoEndDate) return [];
+
+        const postos = abastecimentos
+            .filter(item => {
+                if (!item.data_registro) return false;
+                const itemDate = item.data_registro.split('T')[0];
+                return itemDate >= fechamentoStartDate && itemDate <= fechamentoEndDate;
+            })
+            .map(item => item.posto?.trim().toUpperCase() || 'NÃO INFORMADO');
+
+        return [...new Set(postos)].sort();
+    }, [abastecimentos, fechamentoStartDate, fechamentoEndDate]);
+
+    useEffect(() => {
+        setSelectedFechamentoPostos(fechamentoPostosDisponiveis);
+    }, [fechamentoPostosDisponiveis]);
 
     return (
         <div className="min-h-screen bg-[#F3F4F6] text-slate-800 font-sans pb-10">
@@ -860,6 +923,7 @@ const Abastecimento = () => {
                                     <th className="px-8 py-3.5">Placa</th>
                                     <th className="px-8 py-3.5">Motorista</th>
                                     <th className="px-8 py-3.5">Posto</th>
+                                    <th className="px-8 py-3.5">KM/LT</th>
                                     <th className="px-8 py-3.5">Quantidade</th>
                                     <th className="px-8 py-3.5">Valor</th>
                                     <th className="px-8 py-3.5 text-center">Ações</th>
@@ -868,11 +932,11 @@ const Abastecimento = () => {
                             <tbody className="divide-y divide-slate-50">
                                 {filteredAbastecimentos.length === 0 ? (
                                     <tr>
-                                        <td colSpan="7" className="px-8 py-16 text-center text-slate-400 font-bold uppercase italic text-xs tracking-widest animate-pulse">
+                                        <td colSpan="8" className="px-8 py-16 text-center text-slate-400 font-bold uppercase italic text-xs tracking-widest animate-pulse">
                                             {loading ? 'Carregando dados...' : 'Nenhum abastecimento encontrado para esta busca.'}
                                         </td>
                                     </tr>
-                                ) : filteredAbastecimentos.map((item) => (
+                                ) : paginatedAbastecimentos.map((item) => (
                                     <tr key={item.id} className="hover:bg-slate-50/50 transition-colors group">
                                         <td className="px-8 py-4 text-sm font-semibold text-slate-600">
                                             {formatDate(item.data_registro)}
@@ -887,6 +951,9 @@ const Abastecimento = () => {
                                         </td>
                                         <td className="px-8 py-4 text-sm font-semibold text-slate-500 italic">
                                             {item.posto}
+                                        </td>
+                                        <td className="px-8 py-4 text-sm font-black text-orange-500">
+                                            {item.km_lt ? Number(item.km_lt).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '0,00'}
                                         </td>
                                         <td className="px-8 py-4 text-sm font-bold text-slate-600">
                                             {item.quantidade} <span className="text-[9px] text-slate-400">Lts</span>
@@ -914,12 +981,52 @@ const Abastecimento = () => {
                                 ))}
                             </tbody>
                         </table>
-                        {filteredAbastecimentos.length === 0 && (
-                            <div className="p-16 text-center text-slate-400 font-bold uppercase italic text-xs tracking-widest animate-pulse">
-                                Nenhum abastecimento encontrado para esta busca.
-                            </div>
-                        )}
                     </div>
+                    {filteredAbastecimentos.length > itemsPerPage && (
+                        <div className="px-6 py-4 border-t border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4 bg-slate-50/30">
+                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                                Página {currentPage} de {totalPages} • Mostrando {paginatedAbastecimentos.length} de {filteredAbastecimentos.length} registro(s)
+                            </span>
+                            <div className="flex items-center gap-2 flex-wrap justify-center">
+                                <button
+                                    type="button"
+                                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                                    disabled={currentPage === 1}
+                                    className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-blue-600 hover:border-blue-100 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                >
+                                    Anterior
+                                </button>
+                                {Array.from({ length: totalPages }, (_, index) => index + 1)
+                                    .filter(page => page === 1 || page === totalPages || Math.abs(page - currentPage) <= 2)
+                                    .map((page, index, pages) => (
+                                        <React.Fragment key={page}>
+                                            {index > 0 && page - pages[index - 1] > 1 && (
+                                                <span className="px-1 text-slate-300 font-black">...</span>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => setCurrentPage(page)}
+                                                className={`min-w-9 h-9 px-3 rounded-xl text-xs font-black transition-all ${
+                                                    currentPage === page
+                                                        ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+                                                        : 'bg-white text-slate-500 border border-slate-200 hover:text-blue-600 hover:border-blue-100'
+                                                }`}
+                                            >
+                                                {page}
+                                            </button>
+                                        </React.Fragment>
+                                    ))}
+                                <button
+                                    type="button"
+                                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                                    disabled={currentPage === totalPages}
+                                    className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-blue-600 hover:border-blue-100 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                >
+                                    Próxima
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </main>
 
@@ -1116,7 +1223,7 @@ const Abastecimento = () => {
                         </div>
                         <div className="space-y-1">
                             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Requerimento</label>
-                            <input name="requerimento" value={formData.requerimento} onChange={handleInputChange} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-red-500 outline-none transition-all shadow-sm text-sm font-semibold" placeholder="Nº Requerimento" />
+                            <input name="requerimento" value={formData.requerimento} onChange={handleInputChange} onBlur={handleRequerimentoBlur} className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-red-500 outline-none transition-all shadow-sm text-sm font-semibold" placeholder="Nº Requerimento" />
                         </div>
                         <div className="space-y-1">
                             <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Cupom</label>
@@ -1190,7 +1297,7 @@ const Abastecimento = () => {
 
                                 {/* Campos Automáticos */}
                                 <div className="space-y-1">
-                                    <label className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest ml-1">KM Abaste. Atual</label>
+                                    <label className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest ml-1">KM Anterior</label>
                                     <input type="text" name="km_abast_atual" value={formData.km_abast_atual} onChange={handleInputChange} className="w-full px-4 py-2.5 rounded-xl border border-emerald-200 bg-emerald-50 focus:ring-2 focus:ring-emerald-500 outline-none transition-all shadow-inner text-sm font-bold text-emerald-700" placeholder="0" />
                                 </div>
                                 <div className="space-y-1">
@@ -1382,6 +1489,53 @@ const Abastecimento = () => {
                             className="w-full px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-emerald-500 outline-none transition-all text-sm font-semibold shadow-inner" 
                         />
                     </div>
+                    {fechamentoStartDate && fechamentoEndDate && (
+                        <div className="space-y-3 pt-2">
+                            <div className="flex items-center justify-between gap-3">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1">Postos do Período</label>
+                                {fechamentoPostosDisponiveis.length > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (selectedFechamentoPostos.length === fechamentoPostosDisponiveis.length) {
+                                                setSelectedFechamentoPostos([]);
+                                            } else {
+                                                setSelectedFechamentoPostos(fechamentoPostosDisponiveis);
+                                            }
+                                        }}
+                                        className="text-[10px] font-black text-emerald-600 hover:text-emerald-700 uppercase tracking-widest"
+                                    >
+                                        {selectedFechamentoPostos.length === fechamentoPostosDisponiveis.length ? 'Desmarcar todos' : 'Marcar todos'}
+                                    </button>
+                                )}
+                            </div>
+                            {fechamentoPostosDisponiveis.length === 0 ? (
+                                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-center text-xs font-bold text-slate-400 uppercase tracking-widest">
+                                    Nenhum posto encontrado neste período.
+                                </div>
+                            ) : (
+                                <div className="max-h-56 overflow-y-auto custom-scrollbar rounded-2xl border border-slate-100 bg-slate-50 p-2 space-y-2">
+                                    {fechamentoPostosDisponiveis.map(posto => (
+                                        <label key={posto} className="flex items-center gap-3 bg-white border border-slate-100 rounded-xl px-4 py-3 cursor-pointer hover:border-emerald-200 hover:bg-emerald-50/40 transition-all">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedFechamentoPostos.includes(posto)}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setSelectedFechamentoPostos(prev => [...prev, posto]);
+                                                    } else {
+                                                        setSelectedFechamentoPostos(prev => prev.filter(item => item !== posto));
+                                                    }
+                                                }}
+                                                className="w-4 h-4 accent-emerald-600"
+                                            />
+                                            <span className="text-xs font-black text-slate-700 uppercase tracking-tight">{posto}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
                     <div className="pt-4">
                         <button 
                             onClick={generateFechamentoPDF}

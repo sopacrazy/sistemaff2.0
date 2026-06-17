@@ -159,25 +159,58 @@ const ContasReceber = () => {
         link.download = `relatorio_${selectedTipoRelatorio}_${selectedVendedor}.pdf`;
         document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
         setIsReportModalOpen(false);
       })
-      .catch(console.error);
+      .catch(async (error) => {
+        console.error("Erro ao gerar relatório do vendedor:", error);
+        let errorMsg = "Erro ao gerar o relatório do vendedor.";
+        if (error.response && error.response.data instanceof Blob) {
+          try {
+            const text = await error.response.data.text();
+            if (text) errorMsg = text;
+          } catch (e) {
+            console.error("Erro ao ler blob de erro:", e);
+          }
+        }
+        alert(errorMsg);
+      });
   };
 
   const gerarCarteira = () => {
     if (!selectedVendedorCarteira) return alert("Selecione um vendedor.");
 
-    axios.get(`${API_BASE_URL}/vendedor-cliente?vendedor=${encodeURIComponent(selectedVendedorCarteira)}&empresa=${empresa}`, { responseType: "blob" })
+    const endpoint = selectedTipoAcao === "relatorio" ? "vendedor-relatorio" : "vendedor-cliente";
+    const filenamePrefix = selectedTipoAcao === "relatorio" ? "relatorio" : "carteira";
+
+    axios.get(`${API_BASE_URL}/${endpoint}?vendedor=${encodeURIComponent(selectedVendedorCarteira)}&empresa=${empresa}`, { responseType: "blob" })
       .then((response) => {
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement("a");
         link.href = url;
-        link.download = `carteira_${selectedVendedorCarteira}.pdf`;
+        link.download = `${filenamePrefix}_${selectedVendedorCarteira}.pdf`;
         document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
         setIsCarteiraModalOpen(false);
       })
-      .catch(console.error);
+      .catch(async (error) => {
+        console.error("Erro ao gerar carteira:", error);
+        let errorMsg = "Erro ao gerar a carteira de clientes.";
+        if (error.response && error.response.status === 404) {
+          errorMsg = "Nenhum cliente encontrado na carteira deste vendedor. Para consultar os títulos inadimplentes deste vendedor, utilize a opção 'Relatório Geral'.";
+        } else if (error.response && error.response.data instanceof Blob) {
+          try {
+            const text = await error.response.data.text();
+            if (text) errorMsg = text;
+          } catch (e) {
+            console.error("Erro ao ler blob de erro:", e);
+          }
+        }
+        alert(errorMsg);
+      });
   };
 
   const handleRelatorioCliente = (cliente) => {
@@ -189,12 +222,35 @@ const ContasReceber = () => {
         link.download = `relatorio_${cliente}.pdf`;
         document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
       })
-      .catch(console.error);
+      .catch(async (error) => {
+        console.error("Erro ao gerar relatório do cliente:", error);
+        let errorMsg = "Erro ao gerar o relatório do cliente.";
+        if (error.response && error.response.data instanceof Blob) {
+          try {
+            const text = await error.response.data.text();
+            if (text) errorMsg = text;
+          } catch (e) {
+            console.error("Erro ao ler blob de erro:", e);
+          }
+        }
+        alert(errorMsg);
+      });
   };
 
-  const enviarWhatsApp = (cliente, numeroTitulo, valor, dataVencimento) => {
-    const mensagem = `Olá, *${cliente}*,\n\nEstamos lembrando sobre o pagamento do título abaixo:\n\n*Título nº ${numeroTitulo}*: *${valor}*, vencido em *${dataVencimento}*.\n\nPedimos que regularize a pendência o quanto antes. Caso já tenha efetuado o pagamento, favor desconsiderar.\n`;
+  const enviarWhatsApp = (cliente, numeroTitulo, valor, dataVencimento, notaFiscal) => {
+    const clienteTrim = String(cliente || "").trim();
+    const tituloTrim = String(numeroTitulo || "").trim();
+    const notaTrim = String(notaFiscal || "").trim();
+
+    let identificacaoTitulo = `*Título nº ${tituloTrim}*`;
+    if (notaTrim && notaTrim !== "-") {
+      identificacaoTitulo += ` (NF: *${notaTrim}*)`;
+    }
+
+    const mensagem = `Olá, *${clienteTrim}*,\n\nEstamos lembrando sobre o pagamento do título abaixo:\n\n${identificacaoTitulo}: *${valor}*, vencido em *${dataVencimento}*.\n\nPedimos que regularize a pendência o quanto antes. Caso já tenha efetuado o pagamento, favor desconsiderar.\n`;
     const url = `https://web.whatsapp.com/send?text=${encodeURIComponent(mensagem)}`;
     window.open(url, "_blank");
   };
@@ -203,7 +259,9 @@ const ContasReceber = () => {
   const allClientesKeys = Object.keys(clientes || {});
   const filteredKeys = allClientesKeys.filter(key => {
     const nome = clientes[key]?.cliente || "";
-    return nome.toLowerCase().includes(search.toLowerCase());
+    const vendedorNome = clientes[key]?.vendedor || "";
+    const searchLower = search.toLowerCase();
+    return nome.toLowerCase().includes(searchLower) || vendedorNome.toLowerCase().includes(searchLower);
   });
 
   const totalPages = Math.ceil(filteredKeys.length / rowsPerPage);
@@ -368,7 +426,15 @@ const ContasReceber = () => {
                                           </td>
                                           <td className="px-4 py-2 text-center">
                                             <button
-                                              onClick={() => enviarWhatsApp(cliente.cliente, titulo.E1_NUM, formatCurrency(titulo.E1_SALDO), formatarDataBrasileira(titulo.E1_VENCREA))}
+                                              onClick={() =>
+                                                enviarWhatsApp(
+                                                  cliente.cliente,
+                                                  titulo.E1_NUM,
+                                                  formatCurrency(titulo.E1_SALDO),
+                                                  formatarDataBrasileira(titulo.E1_VENCREA),
+                                                  titulo.E1_TIPO === "NCC" ? titulo.Z4_BILHETE : titulo.Z4_NOTA
+                                                )
+                                              }
                                               className="p-2 rounded-full text-green-500 hover:bg-green-50 hover:scale-110 dark:hover:bg-green-900/20 transition-all flex items-center justify-center mx-auto shadow-sm border border-green-100 dark:border-green-900"
                                               title="Enviar Cobrança WhatsApp"
                                             >

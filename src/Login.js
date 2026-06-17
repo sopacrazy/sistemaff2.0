@@ -168,7 +168,7 @@ const Login = () => {
                 Bem-vindo
               </h1>
               <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
-                SistemaFF - Versão 2.0.0
+                SistemaFF - Versão {__APP_VERSION__}
               </p>
             </div>
 

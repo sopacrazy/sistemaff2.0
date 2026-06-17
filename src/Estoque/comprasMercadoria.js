@@ -312,6 +312,7 @@ const ComprasMercadoria = () => {
   const [compras, setCompras] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
+  const [modoEdicao, setModoEdicao] = useState(false);
   const [itensCompra, setItensCompra] = useState([]);
   const [compraSelecionada, setCompraSelecionada] = useState(null);
   const [qtdades, setQtdades] = useState({});
@@ -453,8 +454,9 @@ const ComprasMercadoria = () => {
     } catch (err) { console.error(err); }
   };
 
-  const handleAbrirModal = async (compra) => {
+  const handleAbrirModal = async (compra, editar = false) => {
     setCompraSelecionada(compra);
+    setModoEdicao(editar);
     try {
       const res = await axios.get(`${API_BASE_URL}/compras-mercadoria/${compra.numero}/itens`, {
         params: { data: filtroDataGlobal }
@@ -691,19 +693,18 @@ const ComprasMercadoria = () => {
                   <th className="px-6 py-4">Chegada</th>
                   <th className="px-6 py-4">Fornecedor</th>
                   <th className="px-6 py-4 text-center">Efetivação</th>
-                  <th className="px-6 py-4 text-center">Status</th>
                   <th className="px-6 py-4 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                 {loading ? (
-                  <tr><td colSpan="6" className="p-8 text-center text-slate-500">Carregando compras...</td></tr>
+                  <tr><td colSpan="5" className="p-8 text-center text-slate-500">Carregando compras...</td></tr>
                 ) : compras.filter(c => {
                   const matchNum = c.numero.toString().includes(filtroCompra.trim());
                   const matchData = !filtroChegadaHoje || new Date(c.chegada).toISOString().split("T")[0] === new Date().toISOString().split("T")[0];
                   return matchNum && matchData;
                 }).length === 0 ? (
-                  <tr><td colSpan="6" className="p-8 text-center text-slate-500">Nenhuma compra encontrada.</td></tr>
+                  <tr><td colSpan="5" className="p-8 text-center text-slate-500">Nenhuma compra encontrada.</td></tr>
                 ) : (
                   compras
                     .filter(c => {
@@ -727,23 +728,36 @@ const ComprasMercadoria = () => {
                             {compra.efetivada === 1 ? '✓ Efetivada' : '○ Em Aberto'}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase border 
-                                            ${compra.status?.toLowerCase() === 'pendente' ? 'bg-red-100 text-red-700 border-red-200' :
-                              compra.status?.toLowerCase() === 'pendências' ? 'bg-amber-100 text-amber-700 border-amber-200' :
-                                'bg-emerald-100 text-emerald-700 border-emerald-200'}`}
-                          >
-                            {compra.status || 'N/A'}
-                          </span>
-                        </td>
                         <td className="px-6 py-4 text-right">
-                          <button
-                            onClick={() => handleAbrirModal(compra)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors font-semibold text-sm flex items-center gap-1 ml-auto"
-                          >
-                            <span className="material-symbols-rounded text-lg">edit_note</span>
-                            Lançar
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            {compra.lancada === 1 ? (
+                              <>
+                                <button
+                                  onClick={() => handleAbrirModal(compra, false)}
+                                  className="p-2 rounded-lg transition-colors font-semibold text-sm flex items-center gap-1 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                                >
+                                  <span className="material-symbols-rounded text-lg">visibility</span>
+                                  Visualizar
+                                </button>
+                                <button
+                                  onClick={() => handleAbrirModal(compra, true)}
+                                  disabled={fechamentoRealizado || preFechamentoRealizado}
+                                  className="p-2 rounded-lg transition-colors font-semibold text-sm flex items-center gap-1 text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  <span className="material-symbols-rounded text-lg">edit</span>
+                                  Editar
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                onClick={() => handleAbrirModal(compra, false)}
+                                className="p-2 rounded-lg transition-colors font-semibold text-sm flex items-center gap-1 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20"
+                              >
+                                <span className="material-symbols-rounded text-lg">edit_document</span>
+                                Lançar
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -775,52 +789,49 @@ const ComprasMercadoria = () => {
       </main>
 
       {/* Modal Lançamento */}
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={`Lançamento: Compra #${compraSelecionada?.numero}`}>
+      <Modal 
+        isOpen={modalOpen} 
+        onClose={() => setModalOpen(false)} 
+        title={
+          (compraSelecionada?.lancada === 1 && !modoEdicao) || fechamentoRealizado || preFechamentoRealizado
+            ? `Visualizar Compra #${compraSelecionada?.numero}`
+            : modoEdicao
+              ? `Editar Lançamento #${compraSelecionada?.numero}`
+              : `Lançar Compra #${compraSelecionada?.numero}`
+        }
+      >
         {itensCompra.length === 0 ? (
           <div className="text-center py-8 text-slate-500">Nenhum item nesta compra.</div>
         ) : (
           <div className="space-y-4">
-            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-50 border-b border-slate-200 font-bold text-slate-500">
+            <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden shadow-sm">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead className="bg-slate-50 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-700 font-bold text-slate-500 dark:text-slate-400">
                   <tr>
                     <th className="px-4 py-3">Código</th>
                     <th className="px-4 py-3">Descrição</th>
-                    <th className="px-4 py-3 text-right">Qtd Nota</th>
-                    <th className="px-4 py-3 text-right">Qtd Recebida</th>
-                    <th className="px-4 py-3 text-center">Usuário</th>
+                    <th className="px-4 py-3 text-right">Qtd Prevista</th>
+                    <th className="px-4 py-3 text-right">Qtd Lançada</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-700/50">
                   {itensCompra.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 font-mono text-slate-600">{item.codigo}</td>
-                      <td className="px-4 py-3 font-medium">{item.descricao}</td>
-                      <td className="px-4 py-3 text-right text-slate-500">{item.qtde}</td>
-                      <td className="px-4 py-2 text-right">
+                    <tr key={idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/20 transition-colors">
+                      <td className="px-4 py-3 font-mono text-slate-500 dark:text-slate-400 text-xs">{item.codigo}</td>
+                      <td className="px-4 py-3 font-medium text-slate-800 dark:text-slate-200">{item.descricao}</td>
+                      <td className="px-4 py-3 text-right text-slate-700 dark:text-slate-300 font-bold">
+                        {item.qtde !== null && item.qtde !== undefined ? Number(item.qtde).toFixed(2) : "0.00"}
+                      </td>
+                      <td className="px-4 py-2 w-36">
                         <input
                           type="number"
-                          value={qtdades[idx] || ""}
-                          onChange={e => {
-                            const val = e.target.value;
-                            setQtdades(p => ({ ...p, [idx]: val }));
-                          }}
-                          className="w-24 text-right border border-slate-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-blue-500 outline-none"
-                          placeholder="0"
+                          value={qtdades[idx] !== undefined ? qtdades[idx] : ""}
+                          onChange={(e) => setQtdades(prev => ({ ...prev, [idx]: e.target.value }))}
+                          disabled={(compraSelecionada?.lancada === 1 && !modoEdicao) || fechamentoRealizado || preFechamentoRealizado}
+                          className="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-800 dark:text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all text-right font-semibold disabled:bg-slate-100 dark:disabled:bg-slate-800/50 disabled:text-slate-400 dark:disabled:text-slate-500"
+                          placeholder="0.00"
+                          step="any"
                         />
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {item.criado_por ? (
-                          <Tooltip title={`Lançado por ${item.criado_por} em ${dayjs.utc(item.criado_em).local().format('DD/MM/YYYY HH:mm')}`} arrow placement="top">
-                            <div className="flex items-center justify-center cursor-help">
-                              <div className="bg-slate-50 hover:bg-blue-50 text-slate-400 hover:text-blue-600 p-1.5 rounded-lg transition-all border border-slate-100 dark:border-slate-700/50">
-                                <span className="material-symbols-rounded text-lg leading-none">history</span>
-                              </div>
-                            </div>
-                          </Tooltip>
-                        ) : (
-                          <span className="text-slate-300 text-xs">--</span>
-                        )}
                       </td>
                     </tr>
                   ))}
@@ -828,12 +839,31 @@ const ComprasMercadoria = () => {
               </table>
             </div>
 
-            <div className="flex justify-end gap-3 pt-4">
-              <button onClick={() => setModalOpen(false)} className="px-6 py-2.5 rounded-xl text-slate-500 hover:bg-slate-100 font-bold transition-colors">Cancelar</button>
-              <button onClick={handleSalvarQtdades} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-600/20 transition-all flex items-center gap-2">
-                <span className="material-symbols-rounded">save</span> Salvar Lançamento
-              </button>
-            </div>
+            {(compraSelecionada?.lancada === 1 && !modoEdicao) || fechamentoRealizado || preFechamentoRealizado ? (
+              <div className="flex justify-end gap-3 pt-4">
+                <button 
+                  onClick={() => setModalOpen(false)} 
+                  className="px-6 py-2.5 rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 font-bold transition-colors"
+                >
+                  Fechar
+                </button>
+              </div>
+            ) : (
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-700">
+                <button 
+                  onClick={() => setModalOpen(false)} 
+                  className="px-6 py-2.5 rounded-xl text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700/50 font-bold transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={handleSalvarQtdades} 
+                  className="px-6 py-2.5 rounded-xl font-bold text-white bg-green-600 hover:bg-green-700 shadow-lg shadow-green-600/20 transition-all transform active:scale-95 flex items-center gap-2"
+                >
+                  <span className="material-symbols-rounded">check</span> Salvar Lançamento
+                </button>
+              </div>
+            )}
           </div>
         )}
       </Modal>
@@ -869,7 +899,6 @@ const ComprasMercadoria = () => {
                     <th className="px-4 py-3">Chegada</th>
                     <th className="px-4 py-3">Fornecedor</th>
                     <th className="px-4 py-3 text-center">Efetivação</th>
-                    <th className="px-4 py-3 text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -931,21 +960,10 @@ const ComprasMercadoria = () => {
                                 {compra.efetivada === 1 ? '✓ Efetivada' : '○ Em Aberto'}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-center">
-                              <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase border 
-                                ${compra.status?.toLowerCase() === 'pendente'
-                                  ? 'bg-red-100 text-red-700 border-red-200'
-                                  : compra.status?.toLowerCase() === 'pendências'
-                                    ? 'bg-amber-100 text-amber-700 border-amber-200'
-                                    : 'bg-emerald-100 text-emerald-700 border-emerald-200'}`}
-                              >
-                                {compra.status || 'N/A'}
-                              </span>
-                            </td>
                           </tr>
                           {isExpanded && (
                             <tr>
-                              <td colSpan="7" className="px-4 py-4 bg-slate-50 dark:bg-slate-800/50">
+                              <td colSpan="6" className="px-4 py-4 bg-slate-50 dark:bg-slate-800/50">
                                 {carregando ? (
                                   <div className="text-center py-4 text-slate-500">
                                     <span className="material-symbols-rounded animate-spin inline-block mr-2">sync</span>

@@ -2,9 +2,43 @@ import React, { useState, useEffect } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
 import { Box } from "@mui/material";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { ThemeProvider } from './contexts/ThemeContext';
+import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import Swal from 'sweetalert2';
 import "sweetalert2/dist/sweetalert2.min.css";
+
+// ── Banner de ambiente de teste ─────────────────────────────────────────────
+const TestModeBanner = () => {
+  const { isTestDb, testDbName } = useTheme();
+  if (!isTestDb) return null;
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      zIndex: 999999,
+      background: 'linear-gradient(90deg, #b91c1c, #dc2626, #b91c1c)',
+      color: '#fff',
+      textAlign: 'center',
+      padding: '6px 16px',
+      fontSize: '13px',
+      fontWeight: 700,
+      letterSpacing: '0.05em',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '10px',
+      boxShadow: '0 2px 8px rgba(185,28,28,0.5)',
+      animation: 'testmodepulse 2s ease-in-out infinite',
+    }}>
+      <span style={{ fontSize: '16px' }}>⚠️</span>
+      <span>BANCO DE TESTE — {testDbName.toUpperCase()}</span>
+      <span style={{ opacity: 0.8, fontWeight: 400 }}>| Alterações NÃO afetam produção</span>
+      <span style={{ fontSize: '16px' }}>⚠️</span>
+    </div>
+  );
+};
+// ────────────────────────────────────────────────────────────────────────────
 
 import Home from "./home";
 import Faturamento from "./Faturamento";
@@ -35,6 +69,7 @@ import NovaDevolucao from "./Estoque/NovaDevolucao";
 import NovaAvaria from "./Estoque/NovaAvaria";
 import ProdutoPorFornecedor from "./Financeiro/ProdutoPorFornecedor";
 import ProdutoPorCliente from "./Financeiro/ProdutoPorCliente";
+import VendasRisco from "./Financeiro/VendasRisco";
 import ValidarCnpj from "./ValidarCnpj";
 import RastreadorPage from "./frota/RastreadorPage";
 import FrotaHome from "./frota/FrotaHome";
@@ -187,9 +222,12 @@ const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
+        {/* Banner de ambiente de teste — visível em TODAS as rotas */}
+        <TestModeBanner />
         <Box sx={{ display: "flex", flexDirection: "column", height: "100vh" }}>
           <AnnouncementCenter />
-          <Box sx={{ flex: 1, overflowY: "auto", paddingBottom: "50px" }}>
+          {/* paddingTop condicional: 36px quando o banner de teste está ativo */}
+          <Box className="app-content-wrapper" sx={{ flex: 1, overflowY: "auto", paddingBottom: "50px" }}>
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route
@@ -348,6 +386,14 @@ const App = () => {
                 element={
                   <PrivateRoute>
                     <ProdutoPorCliente />
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/financeiro/contas-receber/vendas-risco"
+                element={
+                  <PrivateRoute>
+                    <VendasRisco />
                   </PrivateRoute>
                 }
               />

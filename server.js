@@ -41,6 +41,7 @@ const impressorasRoutes = require("./routes/impressoras");
 const geralRoutes = require("./routes/geral");
 const clientesRoute = require("./routes/clientes");
 const chamadoRoutes = require("./routes/chamadoRoutes");
+const rotaAlmoManutencao = require("./routes/rotaAlmoManutencao");
 const relatoriosPublicRoutes = require("./routes/relatoriosPublicRoutes");
 const frotaAbastecimento = require("./routes/frotaAbastecimento");
 
@@ -60,6 +61,8 @@ const basquetaRoutes = require("./routes/basquetaRoutes");
 const caixaRoutes = require("./routes/caixaRoutes");
 const caixaAIRoutes = require("./routes/caixaAIRoutes");
 const rotacontrato = require("./routes/rotacontrato");
+const { startAutoResolveJob } = require("./routes/ocorrenciaAutoResolveJob");
+const fourSalesJobRoutes = require("./routes/fourSalesJobRoutes");
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
@@ -196,9 +199,9 @@ async function connectToMSSQL(retries = 5, delay = 5000) {
   for (let i = 0; i < retries; i++) {
     try {
       if (mssqlPool) {
-        try { await mssqlPool.close(); } catch (e) {}
+        try { await mssqlPool.close(); } catch (e) { }
       }
-      
+
       const pool = await sql.connect(dbConfig);
       mssqlPool = pool;
       app.locals.mssqlPool = pool;
@@ -217,7 +220,7 @@ async function connectToMSSQL(retries = 5, delay = 5000) {
     } catch (err) {
       logger.error(`❌ Falha na tentativa ${i + 1} de conexão ao PROTHEUS:`, err.message);
       if (i < retries - 1) {
-        logger.info(`Tentando reconectar em ${delay/1000}s...`);
+        logger.info(`Tentando reconectar em ${delay / 1000}s...`);
         await new Promise(res => setTimeout(res, delay));
       }
     }
@@ -236,12 +239,16 @@ async function getMSSQLPool() {
 function getProtheusTable(base, req) {
   const empresa = req.query.empresa || req.body.empresa || '140';
   let suffix = empresa === '240' ? '240' : '140';
-  
+
   // A tabela SA3 (Vendedores) é compartilhada no Protheus e existe apenas como SA3140
   if (base === 'SA3') {
     suffix = '140';
   }
-  
+
+  if (base === 'SA1') {
+    return `${base}${suffix}XX`;
+  }
+
   return `${base}${suffix}`;
 }
 
@@ -840,6 +847,7 @@ app.use(impressorasRoutes);
 app.use("/api", geralRoutes);
 app.use("/api", clientesRoute);
 app.use("/chamados", chamadoRoutes(dbOcorrencias, notifyUserByUsername));
+app.use("/api/almo-manutencao", rotaAlmoManutencao(dbOcorrencias));
 app.use("/", exportarTransferencias);
 app.use("/api", abastecimentoRoutes(dbOcorrencias, mssqlPool));
 app.use("/api/contrato", rotacontrato());
@@ -1453,7 +1461,7 @@ async function syncComprasMercadoria(req, res) {
   try {
     const sqlPool = await getMSSQLPool();
     if (!sqlPool) throw new Error("Banco Protheus indisponível");
-    
+
     const request = sqlPool.request();
     const mysqlConn = await dbOcorrencias.promise().getConnection();
 
@@ -1698,15 +1706,19 @@ async function syncComprasMercadoria(req, res) {
 }
 
 // Rota para identificar o ambiente (PRODUÇÃO ou DESENVOLVIMENTO)
-app.get("/api/environment", (req, res) => {
+app.get(["/api/environment", "/environment"], (req, res) => {
   const environment = process.env.ENVIRONMENT || "development";
   const isDevelopment = environment.toLowerCase() === "development";
+  const dbName = process.env.DB_NAME_OCORRENCIAS || "";
+  const isTestDb = dbName.toLowerCase().includes("hmg") || dbName.toLowerCase().includes("teste") || dbName.toLowerCase().includes("test");
 
   res.json({
     environment: environment.toUpperCase(),
     isDevelopment,
     isProduction: !isDevelopment,
     warning: !isDevelopment ? "⚠️ ATENÇÃO: AMBIENTE DE PRODUÇÃO!" : null,
+    isTestDb,
+    dbName,
   });
 });
 
@@ -2306,6 +2318,9 @@ app.get("/entregas-por-rota", async (req, res) => {
       FROM entregas e
       LEFT JOIN RotaTimestamps rt ON e.ZH_CODIGO = rt.codigo_rota AND e.ZB_DTENTRE = rt.data_ref
       WHERE CAST(e.ZB_DTENTRE AS DATE) = ?
+        AND e.ZH_NOME NOT LIKE '%MACAPA%'
+        AND e.ZH_NOME NOT LIKE '%CASTANHAL%'
+        AND e.ZH_NOME NOT LIKE '%RETIRA%'
       ORDER BY e.ZB_DTENTRE DESC, e.ZH_CODIGO, e.ZB_NUMSEQ
     `;
 
@@ -2317,6 +2332,9 @@ app.get("/entregas-por-rota", async (req, res) => {
       WHERE (ZH_FOTO_URL IS NULL OR ZH_FOTO_URL = '')
       AND MONTH(ZB_DTENTRE) = MONTH(CURDATE())
       AND YEAR(ZB_DTENTRE) = YEAR(CURDATE())
+      AND ZH_NOME NOT LIKE '%MACAPA%'
+      AND ZH_NOME NOT LIKE '%CASTANHAL%'
+      AND ZH_NOME NOT LIKE '%RETIRA%'
     `;
 
     // --- NOVA QUERY: BUSCAR O HORARIO QUE A ROTA FICOU PRONTA NO BANCO LOCAL ---
@@ -2519,7 +2537,7 @@ app.post("/atualizar-rota-tempos", async (req, res) => {
       );
       if (resultInicio.affectedRows === 0 && (val || inicio_km)) {
         await connection.query(
-          `INSERT INTO rota_logs (codigo_rota, data_ref, acao, data_hora, km, motorista) VALUES (?, ?, 'INICIO', ?, ?, ?)`,
+          `INSERT INTO rota_logs (codigo_rota, created_at, acao, data_hora, km, motorista) VALUES (?, ?, 'INICIO', ?, ?, ?)`,
           [codigo_rota, data_ref, val, inicio_km || null, username || 'ADM']
         );
       }
@@ -2534,7 +2552,7 @@ app.post("/atualizar-rota-tempos", async (req, res) => {
       );
       if (resultFim.affectedRows === 0 && (val || fim_km)) {
         await connection.query(
-          `INSERT INTO rota_logs (codigo_rota, data_ref, acao, data_hora, km, motorista) VALUES (?, ?, 'ENCERRAR', ?, ?, ?)`,
+          `INSERT INTO rota_logs (codigo_rota, created_at, acao, data_hora, km, motorista) VALUES (?, ?, 'ENCERRAR', ?, ?, ?)`,
           [codigo_rota, data_ref, val, fim_km || null, username || 'ADM']
         );
       }
@@ -2570,7 +2588,18 @@ app.post("/atualizar-rota-tempos", async (req, res) => {
   } catch (err) {
     await connection.rollback();
     console.error("❌ Erro ao atualizar tempos da rota:", err);
-    res.status(500).json({ error: "Erro ao salvar alterações" });
+
+    try {
+      const fs = require('fs');
+      const logMsg = `\n\n=== ERROR AT ${new Date().toISOString()} ===\n` +
+                     `PAYLOAD: ${JSON.stringify(req.body, null, 2)}\n` +
+                     `ERROR: ${err.stack}\n`;
+      fs.appendFileSync('logs/atualizar-rota-error.log', logMsg);
+    } catch (fsErr) {
+      console.error("Erro ao escrever log de erro:", fsErr);
+    }
+
+    res.status(500).json({ error: "Erro ao salvar alterações", details: err.message });
   } finally {
     connection.release();
   }
@@ -2609,6 +2638,49 @@ app.delete("/excluir-parada/:id", async (req, res) => {
   }
 });
 
+// 🔹 NOVA ROTA: Adicionar parada manual (ADM)
+app.post("/adicionar-parada", async (req, res) => {
+  const { codigo_rota, data_ref, local, hora_inicio, hora_fim, username } = req.body;
+
+  if (!codigo_rota || !data_ref || !local) {
+    return res.status(400).json({ error: "Dados incompletos: codigo_rota, data_ref e local são obrigatórios." });
+  }
+
+  try {
+    const [statusLogs] = await dbRegistros.promise().query(
+      `SELECT 1 FROM rota_logs WHERE codigo_rota = ? AND data_ref = ? AND acao = 'FECHADA'`,
+      [codigo_rota, data_ref]
+    );
+    if (statusLogs.length > 0) {
+      return res.status(403).json({ error: "Esta rota está fechada e não permite mais alterações." });
+    }
+
+    const h_inicio = hora_inicio ? dayjs(hora_inicio).format('HH:mm:ss') : null;
+    const h_fim = hora_fim ? dayjs(hora_fim).format('HH:mm:ss') : null;
+    const motorista_id = username || 'ADM';
+
+    const [result] = await dbRegistros.promise().query(
+      `INSERT INTO daily_logs (route_id, motorista_id, data, hora_inicio, hora_fim, local, status) VALUES (?, ?, ?, ?, ?, ?, 'concluido')`,
+      [codigo_rota, motorista_id, data_ref, h_inicio, h_fim, local.toUpperCase()]
+    );
+
+    res.json({
+      success: true,
+      parada: {
+        id: result.insertId,
+        local: local.toUpperCase(),
+        status: 'MANUAL',
+        foto_url: null,
+        hora_inicio: h_inicio ? `${data_ref} ${h_inicio}` : null,
+        hora_fim: h_fim ? `${data_ref} ${h_fim}` : null
+      }
+    });
+  } catch (err) {
+    console.error("❌ Erro ao adicionar parada:", err);
+    res.status(500).json({ error: "Erro interno ao adicionar parada" });
+  }
+});
+
 // 🔹 NOVA ROTA: Fechar rota (ADM)
 app.post("/fechar-rota", async (req, res) => {
   const { codigo_rota, data_ref, username } = req.body;
@@ -2640,7 +2712,7 @@ app.post("/fechar-rota", async (req, res) => {
 
     // 3. Registrar o fechamento
     await dbRegistros.promise().query(
-      `INSERT INTO rota_logs (codigo_rota, data_ref, acao, data_hora, motorista) VALUES (?, ?, 'FECHADA', NOW(), ?)`,
+      `INSERT INTO rota_logs (codigo_rota, created_at, acao, data_hora, motorista) VALUES (?, ?, 'FECHADA', NOW(), ?)`,
       [codigo_rota, data_ref, username || 'ADM']
     );
 
@@ -2718,6 +2790,9 @@ app.get("/exportar-entregas-excel", async (req, res) => {
       LEFT JOIN RotaTimestamps rt ON e.ZH_CODIGO = rt.codigo_rota AND e.ZB_DTENTRE = rt.data_ref
       LEFT JOIN rota_pronta_logs rpl ON e.ZH_ROTA = rpl.rota AND CAST(e.ZB_DTENTRE AS DATE) = CAST(rpl.dt_entrega AS DATE)
       WHERE CAST(e.ZB_DTENTRE AS DATE) BETWEEN ? AND ?
+        AND e.ZH_NOME NOT LIKE '%MACAPA%'
+        AND e.ZH_NOME NOT LIKE '%CASTANHAL%'
+        AND e.ZH_NOME NOT LIKE '%RETIRA%'
       ORDER BY e.ZB_DTENTRE DESC, e.ZH_CODIGO, e.ZB_NUMSEQ
     `;
 
@@ -3291,7 +3366,7 @@ async function getContasPagar(req, res) {
 // --- SUPABASE SETUP (CONTAS A PAGAR) ---
 const { createClient } = require("@supabase/supabase-js");
 const supabasePagar = createClient(
-  process.env.PAGAR_SUPABASE_URL || process.env.SUPABASE_URL, 
+  process.env.PAGAR_SUPABASE_URL || process.env.SUPABASE_URL,
   process.env.PAGAR_SUPABASE_KEY || process.env.SUPABASE_KEY
 );
 
@@ -3343,13 +3418,13 @@ app.post("/contas-pagar/anexar", authenticateToken, upload.single("arquivo"), as
       (titulo_num, parcela, fornecedor, tipo_anexo, arquivo_nome, arquivo_url) 
       VALUES (?, ?, ?, ?, ?, ?)
     `;
-    
+
     await dbOcorrencias.promise().query(query, [
-      titulo_num, 
-      parcela, 
-      fornecedor, 
-      tipo_anexo, 
-      file.originalname, 
+      titulo_num,
+      parcela,
+      fornecedor,
+      tipo_anexo,
+      file.originalname,
       arquivo_url
     ]);
 
@@ -3359,10 +3434,10 @@ app.post("/contas-pagar/anexar", authenticateToken, upload.single("arquivo"), as
     res.json({ success: true, message: "Anexo salvo no Supabase!" });
   } catch (error) {
     logger.error("Erro ao salvar anexo no Supabase:", error);
-    res.status(500).json({ 
-      error: "Erro ao processar anexo.", 
-      details: error.message, 
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined 
+    res.status(500).json({
+      error: "Erro ao processar anexo.",
+      details: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 });
@@ -3410,12 +3485,12 @@ app.delete("/contas-pagar/anexos/:id", authenticateToken, async (req, res) => {
 
   try {
     const [rows] = await dbOcorrencias.promise().query("SELECT arquivo_url FROM contas_pagar_anexos WHERE id = ?", [id]);
-    
+
     if (rows.length > 0) {
       const url = rows[0].arquivo_url;
       // Extrair o path relativo do bucket a partir da URL pública
       const pathPart = url.split('/storage/v1/object/public/contas-pagar/')[1];
-      
+
       if (pathPart) {
         await supabasePagar.storage.from("contas-pagar").remove([pathPart]);
       }
@@ -3549,9 +3624,9 @@ app.get("/relatorio-vendedor", async (req, res) => {
     const vendRes = await pool.request()
       .input("code", sql.VarChar, vendedorCode)
       .query(`SELECT A3_NOME FROM ${sa3Table} WHERE A3_COD = @code AND A3_FILIAL = '01'`);
-    
-    const vendedorNome = vendRes.recordset.length > 0 
-      ? vendRes.recordset[0].A3_NOME.trim() 
+
+    const vendedorNome = vendRes.recordset.length > 0
+      ? vendRes.recordset[0].A3_NOME.trim()
       : vendedorCode;
 
     const query = `
@@ -3775,9 +3850,9 @@ app.get("/vendedor-cliente", async (req, res) => {
     const vendRes = await pool.request()
       .input("code", sql.VarChar, vendedorCode)
       .query(`SELECT A3_NOME FROM ${sa3Table} WHERE A3_COD = @code AND A3_FILIAL = '01'`);
-    
-    const vendedorNome = vendRes.recordset.length > 0 
-      ? vendRes.recordset[0].A3_NOME.trim() 
+
+    const vendedorNome = vendRes.recordset.length > 0
+      ? vendRes.recordset[0].A3_NOME.trim()
       : vendedorCode;
 
     // Consulta SQL para buscar clientes relacionados ao vendedor
@@ -3872,9 +3947,9 @@ app.get("/vendedor-relatorio", async (req, res) => {
     const vendRes = await pool.request()
       .input("code", sql.VarChar, vendedorCode)
       .query(`SELECT A3_NOME FROM ${sa3Table} WHERE A3_COD = @code AND A3_FILIAL = '01'`);
-    
-    const vendedorNome = vendRes.recordset.length > 0 
-      ? vendRes.recordset[0].A3_NOME.trim() 
+
+    const vendedorNome = vendRes.recordset.length > 0
+      ? vendRes.recordset[0].A3_NOME.trim()
       : vendedorCode;
 
     // Primeira query - clientes do vendedor
@@ -4003,6 +4078,8 @@ app.get("/check-protheus", async (req, res) => {
   }
 });
 
+app.use("/", fourSalesJobRoutes(getMSSQLPool));
+
 // --------------------------------------------------------------------------------
 
 // ------------------------------- ESTOQUE -----------------------------------------
@@ -4020,18 +4097,22 @@ app.get("/compras-mercadoria", async (req, res) => {
     const localNormalizado = String(local).trim().padStart(2, "0");
     const [rows] = await connection.query(
       `
-      SELECT 
-        id, 
-        codigo AS numero, 
-        descricao AS fornecedor, 
-        status,
-        DATE(chegada) AS chegada
-      FROM compras_mercadoria
-      WHERE DATE(chegada) = ? 
-        AND TRIM(local) = ?
-      ORDER BY id DESC
+      SELECT
+        cm.id,
+        cm.codigo AS numero,
+        cm.descricao AS fornecedor,
+        cm.status,
+        DATE(cm.chegada) AS chegada,
+        CASE WHEN EXISTS (
+          SELECT 1 FROM compras_mercadoria_lancamentos l
+          WHERE l.compra_codigo = cm.codigo AND DATE(l.data) = ?
+        ) THEN 1 ELSE 0 END AS lancada
+      FROM compras_mercadoria cm
+      WHERE DATE(cm.chegada) = ?
+        AND TRIM(cm.local) = ?
+      ORDER BY cm.id DESC
       `,
-      [data, localNormalizado]
+      [data, data, localNormalizado]
     );
 
     connection.release();
@@ -7956,6 +8037,24 @@ async function buscarPrecosCompraPorCod(dataISO, codigos, poolMSSQL) {
   return map;
 }
 
+app.get("/estoque/faltas-fechamento", async (req, res) => {
+  const { data, local } = req.query;
+  if (!data || !local) return res.status(400).json({ erro: "data e local são obrigatórios." });
+  try {
+    const conn = await dbOcorrencias.promise();
+    const [rows] = await conn.query(
+      `SELECT cod_produto, produto, saldo_calc, fisico, falta
+       FROM faltas_fechamento
+       WHERE DATE(data) = DATE(?) AND local = ? AND falta != 0`,
+      [data, local]
+    );
+    res.json(rows);
+  } catch (e) {
+    console.error("❌ GET faltas-fechamento", e);
+    res.status(500).json({ erro: "Falha ao buscar divergências." });
+  }
+});
+
 app.post("/estoque/faltas-fechamento", async (req, res) => {
   const { data, local, usuario, itens } = req.body;
   if (!data || !local || !Array.isArray(itens)) {
@@ -9280,7 +9379,7 @@ app.post("/produto/observacao", async (req, res) => {
         if (!inv.cod_produto_inversao) continue;
         const codInv = normCod(inv.cod_produto_inversao);
         const qtdInv = Number(inv.qtd_inversao) || 0;
-        
+
         await connMy.query(
           `INSERT INTO produto_observacoes
             (data_ref, local, cod_produto, texto, usuario, cod_produto_inversao, qtd_inversao, motivo)
@@ -9934,6 +10033,11 @@ async function monitorarFaturamentoRotas() {
     // ignorar falha silenciosamente
   }
 }
+
+// --- JOB: Auto-resolver ocorrências conciliadas com Protheus a cada 5 minutos ---
+setTimeout(() => {
+  startAutoResolveJob(dbOcorrencias, getMSSQLPool, 5 * 60 * 1000);
+}, 30000);
 
 setTimeout(() => {
   setInterval(monitorarFaturamentoRotas, 180000);

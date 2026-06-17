@@ -78,10 +78,12 @@ async function checkDevolucao({
   notaFiscal,
   serie,
 }) {
-  if (!fornecedor || !notaFiscal || !serie) return { ok: false, total: 0 };
+  if (!fornecedor || !notaFiscal) return { ok: false, doc: null, total: 0 };
 
   const docPad = String(notaFiscal).replace(/\D/g, "").padStart(9, "0"); // D1_DOC
-  const seriePad = String(serie).replace(/\D/g, "").padStart(3, "0"); // D1_SERIE
+  const cleanSerie = serie ? String(serie).replace(/\D/g, "").replace(/^0+/, "") : "";
+  const seriePad = serie ? String(serie).replace(/\D/g, "").padStart(3, "0") : "";
+  const rawSerie = serie ? String(serie).trim() : "";
 
   try {
     const pool = await getProtheusPool();
@@ -89,27 +91,90 @@ async function checkDevolucao({
     reqM.input("filial", sql.VarChar, filial);
     reqM.input("forn", sql.VarChar, fornecedor);
     reqM.input("doc", sql.VarChar, docPad);
-    reqM.input("serie", sql.VarChar, seriePad);
+    reqM.input("cleanSerie", sql.VarChar, cleanSerie);
+    reqM.input("seriePad", sql.VarChar, seriePad);
+    reqM.input("rawSerie", sql.VarChar, rawSerie);
 
-    const q = `
-      SELECT TOP 1 D1_DOC, D1_SERIE, D1_FORNECE, D1_TOTAL
+    let q = `
+      SELECT TOP 1 D1_DOC, D1_SERIE, MAX(D1_DTDIGIT) AS D1_DTDIGIT_MAX, SUM(D1_TOTAL) AS D1_TOTAL_SUM
         FROM SD1140 WITH (NOLOCK)
        WHERE D_E_L_E_T_ = ''
          AND D1_TIPO    = 'D'
          AND D1_FILIAL  = @filial
          AND D1_FORNECE = @forn
          AND D1_DOC     = @doc
-         AND D1_SERIE   = @serie
+    `;
+    if (cleanSerie) {
+      q += ` AND (LTRIM(RTRIM(D1_SERIE)) = @cleanSerie OR D1_SERIE = @seriePad OR D1_SERIE = @rawSerie) `;
+    }
+    q += ` GROUP BY D1_DOC, D1_SERIE `;
+
+    const { recordset } = await reqM.query(q);
+    if (recordset?.length && recordset[0].D1_TOTAL_SUM !== null) {
+      return {
+        ok: true,
+        doc: recordset[0].D1_DOC ? String(recordset[0].D1_DOC).trim() : docPad,
+        serie: recordset[0].D1_SERIE ? String(recordset[0].D1_SERIE).trim() : (rawSerie || null),
+        total: Number(recordset[0].D1_TOTAL_SUM || 0),
+        emissao: recordset[0].D1_DTDIGIT_MAX ? toISO(recordset[0].D1_DTDIGIT_MAX) : null,
+      };
+    }
+    return { ok: false, doc: null, total: 0 };
+  } catch (e) {
+    console.error("Erro ao consultar SD1140:", e);
+    return { ok: false, doc: null, total: 0 };
+  }
+}
+
+// Checa se já existe devolução no SD1140 a partir da nota_origem (nota de saída) e fornecedor
+async function checkDevolucaoPorNotaOrigem({ filial = "01", fornecedor, notaOrigem }) {
+  if (!notaOrigem) return { ok: false, doc: null, total: 0 };
+
+  const forn = String(fornecedor || "").trim();
+  if (!forn) return { ok: false, doc: null, total: 0 };
+
+  const raw = String(notaOrigem).replace(/\D/g, "");
+  if (!raw) return { ok: false, doc: null, total: 0 };
+
+  const pad9 = raw.padStart(9, "0");
+  const pad8 = raw.padStart(8, "0");
+  const pad7 = raw.padStart(7, "0");
+
+  try {
+    const pool = await getProtheusPool();
+    const reqM = pool.request();
+    reqM.input("filial", sql.VarChar, filial);
+    reqM.input("forn", sql.VarChar, forn);
+    reqM.input("pad9", sql.VarChar, pad9);
+    reqM.input("pad8", sql.VarChar, pad8);
+    reqM.input("pad7", sql.VarChar, pad7);
+    reqM.input("raw", sql.VarChar, raw);
+
+    const q = `
+      SELECT TOP 1 D1_DOC, D1_SERIE, D1_DTDIGIT, SUM(D1_TOTAL) AS D1_TOTAL_SUM
+        FROM SD1140 WITH (NOLOCK)
+       WHERE D_E_L_E_T_ = ''
+         AND D1_TIPO    = 'D'
+         AND D1_FILIAL  = @filial
+         AND D1_FORNECE = @forn
+         AND (D1_NFORI = @pad9 OR D1_NFORI = @pad8 OR D1_NFORI = @pad7 OR D1_NFORI = @raw)
+       GROUP BY D1_DOC, D1_SERIE, D1_DTDIGIT
        ORDER BY D1_DOC DESC
     `;
     const { recordset } = await reqM.query(q);
-    if (recordset?.length) {
-      return { ok: true, total: Number(recordset[0].D1_TOTAL || 0) };
+    if (recordset?.length && recordset[0].D1_DOC) {
+      return {
+        ok: true,
+        doc: recordset[0].D1_DOC ? String(recordset[0].D1_DOC).trim() : null,
+        serie: recordset[0].D1_SERIE ? String(recordset[0].D1_SERIE).trim() : null,
+        total: Number(recordset[0].D1_TOTAL_SUM || 0),
+        emissao: recordset[0].D1_DTDIGIT ? toISO(recordset[0].D1_DTDIGIT) : null,
+      };
     }
-    return { ok: false, total: 0 };
+    return { ok: false, doc: null, total: 0 };
   } catch (e) {
-    console.error("Erro ao consultar SD1140:", e);
-    return { ok: false, total: 0 };
+    console.error("Erro ao consultar SD1140 por nota de origem:", e);
+    return { ok: false, doc: null, total: 0 };
   }
 }
 
@@ -219,9 +284,12 @@ module.exports = (dbOcorrencias) => {
         countParams.push(dateLimit);
       }
       // Filtro por status
-      else if (status === "PENDENTE_APP") {
-        sqlSelect += " AND status = 'PENDENTE' AND adicionado_pelo_app = 'S'";
-        sqlCount += " AND status = 'PENDENTE' AND adicionado_pelo_app = 'S'";
+      const isPendingFilter = status === "PENDENTE" || status === "PENDENTE_APP" || status === "DIVERGENCIA";
+      if (status === "RESOLVIDO") {
+        sqlSelect += " AND status IN ('RESOLVIDO', 'CONCLUIDO', 'CONCLUIDA')";
+        sqlCount += " AND status IN ('RESOLVIDO', 'CONCLUIDO', 'CONCLUIDA')";
+      } else if (isPendingFilter) {
+        sqlSelect += " AND status NOT IN ('RESOLVIDO', 'CONCLUIDO', 'CONCLUIDA')";
       } else if (status && status !== "TODOS" && status !== "") {
         sqlSelect += " AND status = ?";
         sqlCount += " AND status = ?";
@@ -269,8 +337,12 @@ module.exports = (dbOcorrencias) => {
         );
       }
 
-      sqlSelect += " ORDER BY id DESC LIMIT ? OFFSET ?";
-      params.push(limit, offset);
+      if (!isPendingFilter) {
+        sqlSelect += " ORDER BY data DESC, id DESC LIMIT ? OFFSET ?";
+        params.push(limit, offset);
+      } else {
+        sqlSelect += " ORDER BY data DESC, id DESC";
+      }
 
       const [rows] = await dbOcorrencias.promise().query(sqlSelect, params);
 
@@ -321,45 +393,218 @@ module.exports = (dbOcorrencias) => {
         }
       }
 
+      // --- CHECAGEM DE DEVOLUÇÕES NO PROTHEUS EM LOTE ---
+      const directCheckParams = [];
+
+      rows.forEach(row => {
+        const filial = row.filial || "01";
+        const nf = String(row.nota_fiscal || "").trim();
+        
+        const hasNf = nf && nf !== "-" && nf !== "null";
+
+        if (hasNf) {
+          const docPad = nf.replace(/\D/g, "").padStart(9, "0");
+          const cleanRowSerie = String(row.serie || "").trim().replace(/\D/g, "").replace(/^0+/, "");
+          if (docPad && row.fornecedor_cod) {
+            directCheckParams.push({
+              filial,
+              fornecedor: row.fornecedor_cod,
+              docPad,
+              cleanRowSerie
+            });
+          }
+        }
+      });
+
+      let devDirectMap = {};
+      if (directCheckParams.length > 0) {
+        const directDocs = [...new Set(directCheckParams.map(p => p.docPad))];
+        const directDocsSQL = directDocs.map(d => `'${d}'`).join(",");
+        if (directDocsSQL) {
+          try {
+            const pool = await getProtheusPool();
+            const q = `
+              SELECT D1_DOC, D1_SERIE, D1_FORNECE, D1_FILIAL, MAX(D1_DTDIGIT) AS D1_DTDIGIT_MAX, SUM(D1_TOTAL) AS D1_TOTAL_SUM
+                FROM SD1140 WITH (NOLOCK)
+               WHERE D_E_L_E_T_ = ''
+                 AND D1_TIPO    = 'D'
+                 AND D1_DOC IN (${directDocsSQL})
+               GROUP BY D1_DOC, D1_SERIE, D1_FORNECE, D1_FILIAL
+            `;
+            const res = await pool.request().query(q);
+            res.recordset.forEach(r => {
+              const doc = String(r.D1_DOC).trim();
+              const serie = String(r.D1_SERIE).trim().replace(/^0+/, ""); // Clean leading zeros
+              const forn = String(r.D1_FORNECE).trim();
+              const fil = String(r.D1_FILIAL).trim();
+              const key = `${fil}_${forn}_${doc}_${serie}`;
+              devDirectMap[key] = {
+                ok: true,
+                doc,
+                serie,
+                total: Number(r.D1_TOTAL_SUM || 0),
+                emissao: r.D1_DTDIGIT_MAX ? toISO(r.D1_DTDIGIT_MAX) : null
+              };
+            });
+          } catch (e) {
+            console.error("Erro ao consultar devoluções diretas em lote:", e);
+          }
+        }
+      }
+
       // 2) Processar enriquecimento final (Devolução + Data Correta + Bilhete Correto)
-      const enriched = await Promise.all(
-        rows.map(async (row) => {
-          const b = String(row.bilhete || "").trim();
-          const n = String(row.numero || "").trim();
-          const nt = String(row.nota_origem || "").trim();
-          const ntPad = nt.padStart(9, "0");
-          
-          // Ordem de preferência para o match: Bilhete -> Nota -> Romaneio
-          const infoProtheus = z4DataMap[b] || z4DataMap[nt] || z4DataMap[ntPad] || z4DataMap[n];
-          
-          // Se encontrou no Protheus, usa essa data e o bilhete real
-          const realData = infoProtheus ? toISO(infoProtheus.data) : row.data;
-          const realBilhete = infoProtheus ? infoProtheus.bilhete : row.bilhete;
+      const enriched = rows.map((row) => {
+        const b = String(row.bilhete || "").trim();
+        const n = String(row.numero || "").trim();
+        const nt = String(row.nota_origem || "").trim();
+        const ntPad = nt.padStart(9, "0");
+        
+        // Ordem de preferência para o match: Bilhete -> Nota -> Romaneio
+        const infoProtheus = z4DataMap[b] || z4DataMap[nt] || z4DataMap[ntPad] || z4DataMap[n];
+        
+        // Se encontrou no Protheus, usa essa data e o bilhete real
+        const realData = infoProtheus ? toISO(infoProtheus.data) : row.data;
+        const realBilhete = infoProtheus ? infoProtheus.bilhete : row.bilhete;
 
-          const dev = await checkDevolucao({
-            filial: row.filial || "01",
-            fornecedor: row.fornecedor_cod || null,
-            notaFiscal: row.nota_fiscal || null,
-            serie: row.serie || null,
-          });
+        let dev = { ok: false, doc: null, serie: null, total: 0, emissao: null };
 
-          return {
-            ...row,
-            data: realData,
-            bilhete: realBilhete,
-            devolucao_ok: !!dev.ok,
-            devolucao_total: Number(dev.total || 0),
-          };
-        })
-      );
+        const filial = row.filial || "01";
+        const nf = String(row.nota_fiscal || "").trim();
+        const hasNf = nf && nf !== "-" && nf !== "null";
 
-      const [countResult] = await dbOcorrencias
-        .promise()
-        .query(sqlCount, countParams);
-      const total = countResult[0].total;
-      const totalPages = Math.ceil(total / limit);
+        if (hasNf) {
+          const docPad = nf.replace(/\D/g, "").padStart(9, "0");
+          const cleanRowSerie = String(row.serie || "").trim().replace(/\D/g, "").replace(/^0+/, "");
+          const key = `${filial}_${row.fornecedor_cod}_${docPad}_${cleanRowSerie}`;
+          if (devDirectMap[key]) {
+            dev = devDirectMap[key];
+          }
+        }
 
-      res.send({ ocorrencias: enriched, totalPages });
+        return {
+          ...row,
+          data: realData,
+          bilhete: realBilhete,
+          devolucao_ok: !!dev.ok,
+          devolucao_total: Number(dev.total || 0),
+          protheus_devolucao_ok: !!dev.ok,
+          protheus_devolucao_doc: dev.doc,
+          protheus_devolucao_serie: dev.serie,
+          protheus_devolucao_total: Number(dev.total || 0),
+          protheus_devolucao_emissao: dev.emissao,
+        };
+      });
+
+      // --- AUTO-RESOLVER OCORRÊNCIAS SEM DIVERGÊNCIA ---
+      let autoResolvidosCount = 0;
+      for (const row of enriched) {
+        const isStatusPendente = row.status !== 'RESOLVIDO' && row.status !== 'CONCLUIDO' && row.status !== 'CONCLUIDA';
+        const hasOrigem = row.nota_origem || row.notaOrigem;
+        if (isStatusPendente && hasOrigem && row.protheus_devolucao_ok) {
+          const valOcr = parseFloat(row.valor || 0);
+          const valProt = parseFloat(row.protheus_devolucao_total || 0);
+          const diffValor = Math.abs(valOcr - valProt);
+          const hasDivergenceValor = diffValor >= 0.01;
+
+          const cleanOcrSerie = String(row.serie || "").trim().replace(/^0+/, "");
+          const cleanProtSerie = String(row.protheus_devolucao_serie || "").trim().replace(/^0+/, "");
+          const isOcrSerieEmpty = !cleanOcrSerie || cleanOcrSerie === "-";
+          const hasDivergenceSerie = isOcrSerieEmpty ? false : (cleanOcrSerie !== cleanProtSerie);
+
+          const cleanOcrNota = String(row.nota_fiscal || row.notaFiscal || "").trim().replace(/^0+/, "");
+          const cleanProtDoc = String(row.protheus_devolucao_doc || "").trim().replace(/^0+/, "");
+          const isOcrNotaEmpty = !cleanOcrNota || cleanOcrNota === "-";
+          const hasDivergenceNota = isOcrNotaEmpty ? false : (cleanOcrNota !== cleanProtDoc);
+
+          const isDivergent = hasDivergenceValor || hasDivergenceSerie || hasDivergenceNota;
+
+          if (!isDivergent) {
+            try {
+              await dbOcorrencias.promise().query(
+                "UPDATE ocorrencias SET status = 'RESOLVIDO', dataTratativa = NOW(), updated_at = NOW() WHERE id = ?",
+                [row.id]
+              );
+              row.status = 'RESOLVIDO';
+              row.dataTratativa = new Date().toISOString().split('T')[0];
+              logOcorrencia(row.id, "EDICAO", "SISTEMA", "Status alterado automaticamente para RESOLVIDO por conciliação com Protheus");
+              autoResolvidosCount++;
+            } catch (updateErr) {
+              console.error(`Erro ao auto-resolver ocorrência #${row.id}:`, updateErr);
+            }
+          }
+        }
+      }
+
+      // Sort enriched list by billing date DESC, then id DESC
+      enriched.sort((a, b) => {
+        const getVal = (x) => {
+          if (!x) return "";
+          return String(x).split("T")[0];
+        };
+        const dateA = getVal(a.data);
+        const dateB = getVal(b.data);
+        if (dateA !== dateB) {
+          return dateB < dateA ? -1 : 1;
+        }
+        return b.id - a.id;
+      });
+
+      let finalRows = enriched;
+      if (isPendingFilter) {
+        finalRows = enriched.filter(row => {
+          // Check divergence
+          const hasOrigem = row.nota_origem || row.notaOrigem;
+          let isDivergent = false;
+          if (hasOrigem && row.protheus_devolucao_ok) {
+            const valOcr = parseFloat(row.valor || 0);
+            const valProt = parseFloat(row.protheus_devolucao_total || 0);
+            const diffValor = Math.abs(valOcr - valProt);
+            const hasDivergenceValor = diffValor >= 0.01;
+
+            const cleanOcrSerie = String(row.serie || "").trim().replace(/^0+/, "");
+            const cleanProtSerie = String(row.protheus_devolucao_serie || "").trim().replace(/^0+/, "");
+            const isOcrSerieEmpty = !cleanOcrSerie || cleanOcrSerie === "-";
+            const hasDivergenceSerie = isOcrSerieEmpty ? false : (cleanOcrSerie !== cleanProtSerie);
+
+            const cleanOcrNota = String(row.nota_fiscal || row.notaFiscal || "").trim().replace(/^0+/, "");
+            const cleanProtDoc = String(row.protheus_devolucao_doc || "").trim().replace(/^0+/, "");
+            const isOcrNotaEmpty = !cleanOcrNota || cleanOcrNota === "-";
+            const hasDivergenceNota = isOcrNotaEmpty ? false : (cleanOcrNota !== cleanProtDoc);
+
+            isDivergent = hasDivergenceValor || hasDivergenceSerie || hasDivergenceNota;
+          }
+
+          if (status === "DIVERGENCIA") {
+            return isDivergent;
+          }
+
+          if (status === "PENDENTE_APP") {
+            return !isDivergent && row.status === "PENDENTE" && row.adicionado_pelo_app === "S";
+          }
+
+          if (status === "PENDENTE") {
+            return !isDivergent && row.status === "PENDENTE" && row.adicionado_pelo_app !== "S";
+          }
+
+          return true;
+        });
+      }
+
+      let paginatedRows = finalRows;
+      let totalPages = 1;
+      if (isPendingFilter) {
+        const total = finalRows.length;
+        totalPages = Math.ceil(total / limit);
+        paginatedRows = finalRows.slice(offset, offset + limit);
+      } else {
+        const [countResult] = await dbOcorrencias
+          .promise()
+          .query(sqlCount, countParams);
+        const total = countResult[0].total;
+        totalPages = Math.ceil(total / limit);
+      }
+
+      res.send({ ocorrencias: paginatedRows, totalPages, autoResolvidos: autoResolvidosCount });
     } catch (err) {
       console.error("Erro ao obter ocorrências:", err);
       res.status(500).send(err);
@@ -774,7 +1019,7 @@ SELECT
         : null;
 
     const serieClean =
-      serie != null && String(serie).trim() !== "" ? padLeft(serie, 3) : null;
+      serie != null && String(serie).trim() !== "" ? String(serie).trim() : null;
 
     const nfOrigemClean =
       notaOrigem != null && String(notaOrigem).trim() !== ""
@@ -1187,7 +1432,7 @@ SELECT
         ? padLeft(notaFiscal, 9)
         : null;
     const serieClean =
-      serie != null && String(serie).trim() !== "" ? padLeft(serie, 3) : null;
+      serie != null && String(serie).trim() !== "" ? String(serie).trim() : null;
     const nfOrigemClean =
       notaOrigem != null && String(notaOrigem).trim() !== ""
         ? onlyDigits(notaOrigem).slice(0, 12)
@@ -1758,6 +2003,76 @@ SELECT
           }
         } catch (e) {
           console.error("Erro ao enriquecer detalhe com Z4_DATA:", e);
+        }
+      }
+
+      // --- CHECAGEM DE DEVOLUÇÃO NO PROTHEUS ---
+      try {
+        let dev = { ok: false, doc: null, serie: null, total: 0, emissao: null };
+
+        const nf = String(ocorrencia.nota_fiscal || "").trim();
+        const hasNf = nf && nf !== "-" && nf !== "null";
+
+        // 1) Se possui nota_fiscal informada, busca diretamente por ela
+        if (hasNf) {
+          const devDirect = await checkDevolucao({
+            filial: ocorrencia.filial || "01",
+            fornecedor: ocorrencia.fornecedor_cod || null,
+            notaFiscal: nf,
+            serie: ocorrencia.serie || null,
+          });
+          if (devDirect.ok) {
+            dev = devDirect;
+          }
+        } 
+
+        ocorrencia.protheus_devolucao_ok = dev.ok;
+        ocorrencia.protheus_devolucao_doc = dev.doc;
+        ocorrencia.protheus_devolucao_serie = dev.serie;
+        ocorrencia.protheus_devolucao_total = dev.total;
+        ocorrencia.protheus_devolucao_emissao = dev.emissao;
+      } catch (devErr) {
+        console.error("Erro ao verificar devolução no Protheus:", devErr);
+        ocorrencia.protheus_devolucao_ok = false;
+        ocorrencia.protheus_devolucao_doc = null;
+        ocorrencia.protheus_devolucao_serie = null;
+        ocorrencia.protheus_devolucao_total = 0;
+        ocorrencia.protheus_devolucao_emissao = null;
+      }
+
+      // --- AUTO-RESOLVER SE NÃO HOUVER DIVERGÊNCIA ---
+      const isStatusPendente = ocorrencia.status !== 'RESOLVIDO' && ocorrencia.status !== 'CONCLUIDO' && ocorrencia.status !== 'CONCLUIDA';
+      const hasOrigem = ocorrencia.nota_origem || ocorrencia.notaOrigem;
+      if (isStatusPendente && hasOrigem && ocorrencia.protheus_devolucao_ok) {
+        const valOcr = parseFloat(ocorrencia.valor || 0);
+        const valProt = parseFloat(ocorrencia.protheus_devolucao_total || 0);
+        const diffValor = Math.abs(valOcr - valProt);
+        const hasDivergenceValor = diffValor >= 0.01;
+
+        const cleanOcrSerie = String(ocorrencia.serie || "").trim().replace(/^0+/, "");
+        const cleanProtSerie = String(ocorrencia.protheus_devolucao_serie || "").trim().replace(/^0+/, "");
+        const isOcrSerieEmpty = !cleanOcrSerie || cleanOcrSerie === "-";
+        const hasDivergenceSerie = isOcrSerieEmpty ? false : (cleanOcrSerie !== cleanProtSerie);
+
+        const cleanOcrNota = String(ocorrencia.nota_fiscal || ocorrencia.notaFiscal || "").trim().replace(/^0+/, "");
+        const cleanProtDoc = String(ocorrencia.protheus_devolucao_doc || "").trim().replace(/^0+/, "");
+        const isOcrNotaEmpty = !cleanOcrNota || cleanOcrNota === "-";
+        const hasDivergenceNota = isOcrNotaEmpty ? false : (cleanOcrNota !== cleanProtDoc);
+
+        const isDivergent = hasDivergenceValor || hasDivergenceSerie || hasDivergenceNota;
+
+        if (!isDivergent) {
+          try {
+            await conn.query(
+              "UPDATE ocorrencias SET status = 'RESOLVIDO', dataTratativa = NOW(), updated_at = NOW() WHERE id = ?",
+              [id]
+            );
+            ocorrencia.status = 'RESOLVIDO';
+            ocorrencia.dataTratativa = new Date().toISOString().split('T')[0];
+            logOcorrencia(id, "EDICAO", "SISTEMA", "Status alterado automaticamente para RESOLVIDO por conciliação com Protheus");
+          } catch (updateErr) {
+            console.error(`Erro ao auto-resolver ocorrência #${id}:`, updateErr);
+          }
         }
       }
 

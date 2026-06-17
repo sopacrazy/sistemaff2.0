@@ -30,7 +30,9 @@ ChartJS.register(
 
 const AbastecimentoDashboard = ({ data = [] }) => {
     // Estados de Filtro
-    const [period, setPeriod] = useState('all'); // '7', 'month', 'all'
+    const [period, setPeriod] = useState('all'); // '7', 'month', 'all', 'custom'
+    const [customStart, setCustomStart] = useState('');
+    const [customEnd, setCustomEnd] = useState('');
     const [company, setCompany] = useState('all');
     const [drillDownPlate, setDrillDownPlate] = useState(null);
     const [showAllKmChart, setShowAllKmChart] = useState(false);
@@ -56,6 +58,12 @@ const AbastecimentoDashboard = ({ data = [] }) => {
                 passPeriod = localItemDate >= sevenDaysAgo;
             } else if (period === 'month') {
                 passPeriod = parseInt(month, 10) === now.getMonth() + 1 && parseInt(year, 10) === now.getFullYear();
+            } else if (period === 'custom' && customStart && customEnd) {
+                const [sy, sm, sd] = customStart.split('-');
+                const [ey, em, ed] = customEnd.split('-');
+                const start = new Date(sy, sm - 1, sd);
+                const end = new Date(ey, em - 1, ed);
+                passPeriod = localItemDate >= start && localItemDate <= end;
             }
 
             // Filtro de Empresa
@@ -66,7 +74,7 @@ const AbastecimentoDashboard = ({ data = [] }) => {
 
             return passPeriod && passCompany && passPlate;
         });
-    }, [data, period, company, drillDownPlate]);
+    }, [data, period, customStart, customEnd, company, drillDownPlate]);
 
     // Cálculos de KPIs
     const stats = useMemo(() => {
@@ -195,25 +203,40 @@ const AbastecimentoDashboard = ({ data = [] }) => {
         <div className="space-y-6 text-slate-800 font-inter">
             {/* Filtros */}
             <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-50 p-4 rounded-3xl border border-slate-100 shadow-inner">
-                <div className="flex items-center gap-2">
-                    <button 
-                        onClick={() => setPeriod('7')}
-                        className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${period === '7' ? 'bg-red-600 text-white shadow-lg shadow-red-600/20' : 'bg-white text-slate-400 hover:text-slate-600'}`}
-                    >
-                        Últimos 7 Dias
-                    </button>
-                    <button 
-                        onClick={() => setPeriod('month')}
-                        className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${period === 'month' ? 'bg-red-600 text-white shadow-lg shadow-red-600/20' : 'bg-white text-slate-400 hover:text-slate-600'}`}
-                    >
-                        Mês Atual
-                    </button>
-                    <button 
-                        onClick={() => setPeriod('all')}
-                        className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${period === 'all' ? 'bg-red-600 text-white shadow-lg shadow-red-600/20' : 'bg-white text-slate-400 hover:text-slate-600'}`}
-                    >
-                        Tudo
-                    </button>
+                <div className="flex flex-wrap items-center gap-2">
+                    {[
+                        { key: '7',     label: 'Últ. 7 Dias' },
+                        { key: 'month', label: 'Mês Atual'   },
+                        { key: 'all',   label: 'Tudo'        },
+                        { key: 'custom', label: 'Personalizado', icon: 'date_range' },
+                    ].map(({ key, label, icon }) => (
+                        <button
+                            key={key}
+                            onClick={() => setPeriod(key)}
+                            className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${period === key ? 'bg-red-600 text-white shadow-lg shadow-red-600/20' : 'bg-white text-slate-400 hover:text-slate-600'}`}
+                        >
+                            {icon && <span className="material-symbols-rounded text-sm">{icon}</span>}
+                            {label}
+                        </button>
+                    ))}
+
+                    {period === 'custom' && (
+                        <div className="flex items-center gap-2 ml-1 bg-white px-3 py-1.5 rounded-xl shadow-sm border border-slate-100">
+                            <input
+                                type="date"
+                                value={customStart}
+                                onChange={(e) => setCustomStart(e.target.value)}
+                                className="text-[11px] font-semibold text-slate-700 outline-none bg-transparent cursor-pointer"
+                            />
+                            <span className="text-slate-300 text-xs font-bold">→</span>
+                            <input
+                                type="date"
+                                value={customEnd}
+                                onChange={(e) => setCustomEnd(e.target.value)}
+                                className="text-[11px] font-semibold text-slate-700 outline-none bg-transparent cursor-pointer"
+                            />
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex items-center gap-4">

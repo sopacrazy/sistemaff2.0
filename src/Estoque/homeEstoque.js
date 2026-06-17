@@ -177,6 +177,7 @@ const HomeEstoque = () => {
   );
   const [preFechamentoRealizado, setPreFechamentoRealizado] = useState(false);
   const [mostrarTodos, setMostrarTodos] = useState(false);
+  const [divergenciasAnteriores, setDivergenciasAnteriores] = useState({});
 
   const [editingCod, setEditingCod] = useState(null);
   const [editingValue, setEditingValue] = useState("");
@@ -475,6 +476,19 @@ const HomeEstoque = () => {
       })
       .filter((it) => it._falta > 0)
       .sort((a, b) => b._falta - a._falta);
+  }, [saldos, fisico]);
+
+  // todos os itens com divergência (falta > 0 = shortage, falta < 0 = sobra)
+  const produtosDivergentes = useMemo(() => {
+    return (saldos || [])
+      .map((it) => {
+        const fis = fisico[it.cod] ?? it.fisico ?? 0;
+        const fisVal = Number(String(fis).replace(",", ".")) || 0;
+        const saldoVal = Number(it.saldo || 0);
+        const falta = round2(saldoVal - fisVal);
+        return { ...it, _fisico: fisVal, _saldo: saldoVal, _falta: falta };
+      })
+      .filter((it) => Math.abs(it._falta) > 0);
   }, [saldos, fisico]);
 
   const [dialogLocais, setDialogLocais] = useState(false);
@@ -836,12 +850,12 @@ const HomeEstoque = () => {
     [origemUsuario]
   ); // 👈 Dependências aqui
 
-  // 🔧 HELPER: salva faltas do fechamento e retorna quantos itens foram gravados
+  // 🔧 HELPER: salva faltas E sobras do fechamento e retorna quantos itens foram gravados
   const salvarFaltasDoFechamento = async (minFalta = 0.0) => {
     try {
-      // pega itens com falta (saldo > físico) e opcionalmente ignora micro-diferenças
-      const itensBase = (produtosComFalta || []).filter(
-        (it) => (it?._falta || 0) > minFalta
+      // pega todos os itens com divergência: falta > 0 (shortage) ou falta < 0 (sobra)
+      const itensBase = (produtosDivergentes || []).filter(
+        (it) => Math.abs(it?._falta || 0) > minFalta
       );
 
       // carrega observações destes códigos (best effort)
@@ -1093,7 +1107,8 @@ const HomeEstoque = () => {
       resDevolucoes,
       resSaldosDiaAnterior,
       resSaldosProtheus,
-      resInversoes;
+      resInversoes,
+      resDivergenciasAnt;
 
     let nomeProtheus = {};
 
@@ -1110,6 +1125,7 @@ const HomeEstoque = () => {
         resSaldosDiaAnterior,
         resSaldosProtheus,
         resInversoes,
+        resDivergenciasAnt,
       ] = await Promise.all([
         axios.get(`${API_BASE_URL}/produtos-com-saldo`, {
           params: { data: filtroData, local: origemUsuario },
@@ -1144,6 +1160,9 @@ const HomeEstoque = () => {
         axios.get(`${API_BASE_URL}/produto/inversoes`, {
           params: { data: filtroData, local: origemUsuario },
         }).catch(() => ({ data: {} })), // não bloqueia se falhar
+        axios.get(`${API_BASE_URL}/estoque/faltas-fechamento`, {
+          params: { data: dataAnteriorStr, local: origemUsuario },
+        }).catch(() => ({ data: [] })),
       ]);
 
 
@@ -1670,6 +1689,14 @@ const HomeEstoque = () => {
       setSaldos(saldosComDados);
       setFisico(contagemMap);
       setAvarias(avariasMap);
+
+      // monta mapa de divergências do dia anterior { [cod]: falta } (positivo=falta, negativo=sobra)
+      const divAntMap = {};
+      (resDivergenciasAnt?.data || []).forEach((d) => {
+        const c = normalizeCod(d.cod_produto);
+        if (c) divAntMap[c] = Number(d.falta);
+      });
+      setDivergenciasAnteriores(divAntMap);
       setDevolucoes(
         Object.fromEntries(
           Object.entries(devolucoesMap).map(([cod, unidade]) => [
@@ -2699,7 +2726,25 @@ const HomeEstoque = () => {
                           })()}
                         </td>
                         <td className="px-4 py-3 text-sm text-right text-slate-600 dark:text-slate-400">
-                          {Number(item?.saldoInicial || 0).toFixed(2)}
+                          <div className="flex flex-col items-end gap-0.5">
+                            <span>{Number(item?.saldoInicial || 0).toFixed(2)}</span>
+                            {(() => {
+                              const div = divergenciasAnteriores[normalizeCod(item.cod)];
+                              if (!div) return null;
+                              if (div > 0) return (
+                                <span title={`Fechou com Falta de ${div.toFixed(2)} no dia anterior`}
+                                  className="text-[10px] px-1.5 py-0.5 bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 rounded font-bold leading-none whitespace-nowrap">
+                                  ↓ falta {div.toFixed(2)}
+                                </span>
+                              );
+                              return (
+                                <span title={`Fechou com Sobra de ${Math.abs(div).toFixed(2)} no dia anterior`}
+                                  className="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400 rounded font-bold leading-none whitespace-nowrap">
+                                  ↑ sobra {Math.abs(div).toFixed(2)}
+                                </span>
+                              );
+                            })()}
+                          </div>
                         </td>
                         {/* Coluna Inversão */}
                         <td className={`px-4 py-3 text-sm text-right font-semibold ${(item?.inversao || 0) > 0

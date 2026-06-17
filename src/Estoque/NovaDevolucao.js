@@ -226,17 +226,36 @@ const NovaDevolucao = () => {
 
     setIsSubmitting(true);
 
-    // --- Lógica Especial para Basquetas (Produto 499.001 / 499001) ---
-    const basquetaCodes = ["499.001", "499001"];
-    const produtosNormais = form.produtos.filter(p => !basquetaCodes.includes(String(p.codProduto).trim()));
-    const basquetasNoGrid = form.produtos.filter(p => basquetaCodes.includes(String(p.codProduto).trim()));
+    // --- Lógica Especial para Embalagens (Basqueta, Isopor, Gaiola) ---
+    const getCanonicalEmbalagemCode = (rawCode) => {
+      const code = String(rawCode).trim();
+      if (code === "499.001" || code === "499001") return "499.001";
+      if (code === "141.002" || code === "141002") return "141.002";
+      if (code === "499.003" || code === "499003") return "499.003";
+      return null;
+    };
+
+    const produtosNormais = form.produtos.filter(p => getCanonicalEmbalagemCode(p.codProduto) === null);
+    const embalagensNoGrid = form.produtos.filter(p => getCanonicalEmbalagemCode(p.codProduto) !== null);
     
-    // Somar quantidades de basquetas no grid
-    const totalBasquetasGeral = basquetasNoGrid.reduce((acc, p) => acc + (parseInt(p.quantidade) || 0), 0);
+    // Agrupar quantidades de embalagens por código canônico
+    const embalagensAgrupadas = {};
+    for (const p of embalagensNoGrid) {
+      const canonical = getCanonicalEmbalagemCode(p.codProduto);
+      if (canonical) {
+        const qtd = parseInt(p.quantidade) || 0;
+        if (qtd > 0) {
+          embalagensAgrupadas[canonical] = (embalagensAgrupadas[canonical] || 0) + qtd;
+        }
+      }
+    }
+
+    const totalBasquetasGeral = embalagensAgrupadas["499.001"] || 0;
+    const totalEmbalagensGeral = Object.values(embalagensAgrupadas).reduce((acc, q) => acc + q, 0);
 
     const payload = {
       ...form,
-      produtos: produtosNormais, // Envia apenas produtos que não são basquetas para a tabela de devolução
+      produtos: produtosNormais, // Envia apenas produtos que não são embalagens de controle para a tabela de devolução
       numero: form.numero,
       data_inclusao: dataTrabalho,
       usuario: username,
@@ -250,27 +269,33 @@ const NovaDevolucao = () => {
         await axios.post(`${API_BASE_URL}/devolucoes`, payload);
       }
 
-      // 1.1 Registra no Controle de Basquetas (Total do campo + Grid)
-      if (totalBasquetasGeral > 0) {
-        try {
-          await axios.post(`${API_BASE_URL}/api/basquetas/ajuste-cliente`, {
-            cliente: form.clienteId,
-            nome: form.cliente,
-            quantidade: totalBasquetasGeral,
-            tipo: 'ENTRADA',
-            usuario: username,
-            bilhete: form.numero
-          });
-          console.log("Basquetas registradas no controle.");
-        } catch (basqErr) {
-          console.error("Erro ao registrar basquetas no controle:", basqErr);
-          showSnackbar("Erro ao registrar basquetas no controle.", "warning");
+      // 1.1 Registra cada tipo de embalagem no Controle
+      const canonicals = Object.keys(embalagensAgrupadas);
+      for (const canonical of canonicals) {
+        const totalQtd = embalagensAgrupadas[canonical];
+        if (totalQtd > 0) {
+          try {
+            await axios.post(`${API_BASE_URL}/api/basquetas/ajuste-cliente`, {
+              cliente: form.clienteId,
+              nome: form.cliente,
+              quantidade: totalQtd,
+              tipo: 'ENTRADA',
+              usuario: username,
+              bilhete: form.numero,
+              codProduto: canonical,
+              data: dataTrabalho
+            });
+            console.log(`Embalagem ${canonical} registrada no controle.`);
+          } catch (basqErr) {
+            console.error(`Erro ao registrar embalagem ${canonical} no controle:`, basqErr);
+            showSnackbar(`Erro ao registrar embalagem ${canonical} no controle.`, "warning");
+          }
         }
       }
 
-      // Se não tinha produtos normais e só basquetas, precisamos avisar que foi salvo
-      if (produtosNormais.length === 0 && totalBasquetasGeral > 0) {
-        showSnackbar("Basquetas registradas com sucesso!", "success");
+      // Se não tinha produtos normais e só embalagens, precisamos avisar que foi salvo
+      if (produtosNormais.length === 0 && totalEmbalagensGeral > 0) {
+        showSnackbar("Embalagens registradas com sucesso!", "success");
       }
 
       // 2. Tenta imprimir (central e fallback local)

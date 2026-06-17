@@ -10,6 +10,7 @@ import { ConsultaProdutos } from "./components/ConsultaProdutos";
 import { RelatorioPisCofins } from "./components/RelatorioPisCofins";
 import { RelatorioFunrural } from "./components/RelatorioFunrural";
 import { RelatorioNotasFaltantes } from "./components/RelatorioNotasFaltantes";
+import { RelatorioBaixas } from "./components/RelatorioBaixas";
 import { EstadoVisualizacao } from "./tipos";
 
 const FILIAIS = [
@@ -81,6 +82,13 @@ export const FiscalHome = () => {
             subtitle: "TES 130 e 141",
             icon: "agriculture",
             color: "orange"
+        },
+        {
+            id: EstadoVisualizacao.RELATORIO_BAIXAS,
+            title: "Relatório de Baixas",
+            subtitle: "Conciliação Título X NF",
+            icon: "account_balance_wallet",
+            color: "indigo"
         }
     ];
 
@@ -116,6 +124,8 @@ export const FiscalHome = () => {
                 return <ConsultaProdutos filial={filialSelecionada} />;
             case EstadoVisualizacao.RELATORIO_FUNRURAL:
                 return <RelatorioFunrural filial={filialSelecionada} />;
+            case EstadoVisualizacao.RELATORIO_BAIXAS:
+                return <RelatorioBaixas filial={filialSelecionada} />;
             case EstadoVisualizacao.AUDITORIA_FISCAL:
                 return <AuditoriaFiscal />;
             default:
@@ -136,7 +146,9 @@ export const FiscalHome = () => {
             <AppHeader title="FiscalFF" subtitle="Portal Contábil" icon="SF" iconGradient="from-indigo-600 to-indigo-400" iconShadow="shadow-indigo-600/20" onBack="/" />
 
             {/* Conteúdo Principal */}
-            <main className="flex-1 w-full max-w-7xl mx-auto px-6 py-6 relative z-10 flex flex-col">
+            <main className={`flex-1 w-full mx-auto px-4 md:px-6 py-6 relative z-10 flex flex-col transition-all duration-300 ${
+                telaAtual === EstadoVisualizacao.RELATORIO_BAIXAS ? "max-w-[1600px]" : "max-w-7xl"
+            }`}>
                 {telaAtual === "MENU" ? (
                     <>
                         <div className="mb-6 flex justify-between items-center">
@@ -144,6 +156,19 @@ export const FiscalHome = () => {
                                 <span className="material-symbols-rounded group-hover:-translate-x-1 transition-transform">arrow_back</span>
                                 Voltar para Início
                             </button>
+                            <div className="flex items-center gap-2 bg-white dark:bg-slate-800 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                                <span className="material-symbols-rounded text-indigo-500 text-lg">store</span>
+                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Filial:</span>
+                                <select
+                                    value={filialSelecionada}
+                                    onChange={(e) => setFilialSelecionada(e.target.value)}
+                                    className="text-sm font-semibold text-slate-800 dark:text-white bg-transparent border-none outline-none cursor-pointer"
+                                >
+                                    {FILIAIS.map(f => (
+                                        <option key={f.codigo} value={f.codigo}>{f.nome}</option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -173,18 +198,35 @@ export const FiscalHome = () => {
                     </>
                 ) : (
                     <div className="flex flex-col flex-1 gap-4">
-                        <div className="flex justify-between items-center">
+                        <div className="flex justify-between items-center flex-wrap gap-2">
                             <button onClick={() => setTelaAtual("MENU")} className="flex items-center gap-2 text-slate-500 hover:text-indigo-600 transition-colors font-semibold group bg-white/50 dark:bg-slate-800/50 px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700">
                                 <span className="material-symbols-rounded group-hover:-translate-x-1 transition-transform text-sm">arrow_back</span>
                                 Voltar ao Menu Fiscal
                             </button>
-                            <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-teal-500">
-                                {fiscalItems.find(i => i.id === telaAtual)?.title}
-                            </h2>
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-2 bg-white dark:bg-slate-800 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                                    <span className="material-symbols-rounded text-indigo-500 text-lg">store</span>
+                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Filial:</span>
+                                    <select
+                                        value={filialSelecionada}
+                                        onChange={(e) => setFilialSelecionada(e.target.value)}
+                                        className="text-sm font-semibold text-slate-800 dark:text-white bg-transparent border-none outline-none cursor-pointer"
+                                    >
+                                        {FILIAIS.map(f => (
+                                            <option key={f.codigo} value={f.codigo}>{f.nome}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <h2 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-teal-500">
+                                    {fiscalItems.find(i => i.id === telaAtual)?.title}
+                                </h2>
+                            </div>
                         </div>
 
                         {/* RENDER ROOT DOM FOR FISCAL SUB-MODULES */}
-                        <div className="bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700/50 p-6 flex-1 min-h-0">
+                        <div className={`bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700/50 flex-1 min-h-0 transition-all duration-300 ${
+                            telaAtual === EstadoVisualizacao.RELATORIO_BAIXAS ? "p-3 md:p-4" : "p-6"
+                        }`}>
                             {renderizarSubComponente()}
                         </div>
                     </div>

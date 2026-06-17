@@ -133,14 +133,14 @@ module.exports = (dbOcorrencias) => {
     try {
       const v = await validateFaltasReq(req);
       if (v.status !== 204) return res.status(v.status).send(v.msg);
-      const { data, local, tipo = "padrao" } = req.query;
-      console.log(`[ROTA /faltas/pdf] Recebido - Data: ${data}, Local: ${local}, Tipo: ${tipo}`);
-      
+      const { data, dataFim, local, tipo = "padrao" } = req.query;
+      console.log(`[ROTA /faltas/pdf] Recebido - Data: ${data}, DataFim: ${dataFim || data}, Local: ${local}, Tipo: ${tipo}`);
+
       // Passa o pool MSSQL para a função de gerar relatório
       const poolMSSQL = req.app?.locals?.mssqlPool || null;
       await gerarRelatorioFaltas(
         dbOcorrencias,
-        { data, local, tipo: String(tipo).toLowerCase(), poolMSSQL },
+        { data, dataFim: dataFim || data, local, tipo: String(tipo).toLowerCase(), poolMSSQL },
         res
       );
     } catch (err) {
@@ -165,7 +165,7 @@ module.exports = (dbOcorrencias) => {
                 COALESCE(preco_compra, 0) AS preco_compra
            FROM faltas_fechamento
           WHERE data = ? AND local = ?
-            AND (falta IS NOT NULL AND falta <> 0)
+            AND falta > 0
             AND (preco_compra IS NULL OR preco_compra = 0)
           ORDER BY produto`,
         [data, local]
