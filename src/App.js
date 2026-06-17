@@ -70,6 +70,8 @@ import NovaAvaria from "./Estoque/NovaAvaria";
 import ProdutoPorFornecedor from "./Financeiro/ProdutoPorFornecedor";
 import ProdutoPorCliente from "./Financeiro/ProdutoPorCliente";
 import VendasRisco from "./Financeiro/VendasRisco";
+import CentralCobranca from "./Financeiro/CentralCobranca";
+import CobrancaKanban from "./Financeiro/CobrancaKanban";
 import ValidarCnpj from "./ValidarCnpj";
 import RastreadorPage from "./frota/RastreadorPage";
 import FrotaHome from "./frota/FrotaHome";
@@ -394,6 +396,22 @@ const App = () => {
                 element={
                   <PrivateRoute>
                     <VendasRisco />
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/financeiro/contas-receber/cobranca"
+                element={
+                  <PrivateRoute>
+                    <CentralCobranca />
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/financeiro/contas-receber/cobranca/kanban"
+                element={
+                  <PrivateRoute>
+                    <CobrancaKanban />
                   </PrivateRoute>
                 }
               />

@@ -53,6 +53,14 @@ const ContasReceberHome = () => {
       icon: "gavel",
       color: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
       path: "/financeiro/contas-receber/vendas-risco"
+    },
+    {
+      id: "cobranca",
+      title: "Central de Cobrança",
+      subtitle: "Cobrança via WhatsApp",
+      icon: "chat",
+      color: "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400",
+      path: "/financeiro/contas-receber/cobranca"
     }
   ];
 
@@ -76,7 +84,7 @@ const ContasReceberHome = () => {
         </div>
 
         {/* GRID DE MÓDULOS */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 max-w-4xl mx-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
           {modules.map((module) => (
             <button
               key={module.id}

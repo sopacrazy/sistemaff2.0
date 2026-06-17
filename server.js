@@ -63,6 +63,7 @@ const caixaAIRoutes = require("./routes/caixaAIRoutes");
 const rotacontrato = require("./routes/rotacontrato");
 const { startAutoResolveJob } = require("./routes/ocorrenciaAutoResolveJob");
 const fourSalesJobRoutes = require("./routes/fourSalesJobRoutes");
+const cobrancaRoutes = require("./routes/cobrancaRoutes");
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
 const timezone = require("dayjs/plugin/timezone");
@@ -388,7 +389,7 @@ const corsOptions = {
     console.warn(`[CORS] Origem bloqueada: ${origin}`);
     callback(new Error('Não permitido pelo CORS'));
   },
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: [
     "Content-Type",
     "Authorization",
@@ -904,6 +905,7 @@ app.use("/api", fiscalRoutes(() => mssqlPool, dbOcorrencias));
 app.use("/api/compras", comprasRoutes(() => mssqlPool));
 app.use("/api/vendas-report", vendasReportRoutes(() => mssqlPool));
 app.use("/api/basquetas", basquetaRoutes(dbOcorrencias, () => mssqlPool));
+app.use("/api/cobranca", authenticateToken, cobrancaRoutes(dbOcorrencias));
 app.use("/api/caixa", caixaRoutes(() => mssqlPool, authenticateToken));
 app.use("/api/caixa-ai", caixaAIRoutes(() => mssqlPool, authenticateToken));
 
